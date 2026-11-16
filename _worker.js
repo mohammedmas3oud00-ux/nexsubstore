@@ -376,8 +376,9 @@ function trackingPage(order) {
     '.tracking-warning{background:#3b1b25;border:2px solid #ff987f;border-radius:12px;padding:16px;margin:16px 0}.tracking-warning p{color:#fff1eb;margin:0 0 10px}.tracking-warning strong{font-size:1.1rem}.tracking{display:flex;gap:8px;flex-direction:column}.tracking input,.tracking button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #ffad96}.tracking input{min-width:0;background:#25101a;color:#fff1eb}.tracking button{background:#ffc0aa;color:#29120d;cursor:pointer;font-weight:700}#copy-status{min-height:1.8em;margin:4px 0 0}' +
     '</style><main><a href="/">NEXSUB STORE</a><h1>' + title + '</h1>' + details +
     (order?.mode === 'test' ? '<p>طلب تجريبي.</p>' : '') +
-    tracking + (refresh ? '<p>الصفحة بتتحدث تلقائيًا.</p>' : '') + qr + links + lpa + '</main>' +
-    (order ? '<script defer src="/tracking-link.js"></script>' : '') + qrScripts + '</html>',
+    tracking + (refresh ? '<p>الصفحة بتتحدث تلقائيًا.</p>' : '') + qr + links + lpa +
+    (order?.status === 'ready' ? '<section><button type="button" id="show-usage">عرض استهلاك الشريحة</button><p id="usage-result" role="status" style="white-space:pre-line"></p></section>' : '') + '</main>' +
+    (order ? '<script defer src="/tracking-link.js"></script>' : '') + (order?.status === 'ready' ? '<script defer src="/usage-tracking.js"></script>' : '') + qrScripts + '</html>',
     { status: order ? 200 : 404, headers: {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer',
       'X-Robots-Tag': 'noindex, nofollow', 'X-Content-Type-Options': 'nosniff',
