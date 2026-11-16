@@ -123,7 +123,8 @@ async function submitOrder(request, env) {
   if (!name || !variant || !Number.isInteger(variant[1]) || variant[1] <= 0) return json({ ok: false }, 400);
   const planKey=productId+':'+Number(index),spec=VERIFIED_SPECS[planKey];
   if(spec && (variant[0]!==spec.days || variant[1]!==spec.price)) return json({ok:false,error:'catalog_mismatch'},503);
-  if(product.fam==='ct'||product.fam==='sub'&&!['s-nf','s-osn'].includes(productId))return json({ok:false,error:'unavailable'},403);
+  // Legacy country packs are orderable only if priced in this catalog and mapped by the server.
+  if(product.fam==='sub'&&!['s-nf','s-osn'].includes(productId))return json({ok:false,error:'unavailable'},403);
   if(clean(form.get('catalog_version'),32)!==CATALOG_VERSION)return json({ok:false,error:'catalog_version'},409);
   const uploaded = form.get('receipt');
   const receipt = uploaded instanceof File && uploaded.size > 0 ? uploaded : null;
