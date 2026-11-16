@@ -251,12 +251,12 @@ async function handleDecision(request, env) {
   const update = await request.json();
   const query = update.callback_query;
   const isAdmin=(chat,user)=>chat?.type==='private' && String(chat.id)===env.TELEGRAM_CHAT_ID && String(user?.id)===env.TELEGRAM_CHAT_ID;
-  if(update.message?.text==='زوار الشهر'||update.message?.text==='/visitors'){
+  if(['زوار الشهر','/visitors','/start'].includes(update.message?.text)){
     if(!isAdmin(update.message.chat,update.message.from))return json({ok:true});
     if(!env.ORDERS_DB)return json({ok:false},503);
     const month=omanMonth();
-    const count=await env.ORDERS_DB.prepare('SELECT COUNT(*) AS total FROM monthly_visitors WHERE month = ?').bind(month).first();
-    await telegram(env,'sendMessage',{chat_id:env.TELEGRAM_CHAT_ID,text:'زوار الشهر ('+month+'): '+(count?.total??0),reply_markup:{keyboard:[[{text:'زوار الشهر'}]],resize_keyboard:true}});
+    const count=update.message.text==='/start' ? null : await env.ORDERS_DB.prepare('SELECT COUNT(*) AS total FROM monthly_visitors WHERE month = ?').bind(month).first();
+    await telegram(env,'sendMessage',{chat_id:env.TELEGRAM_CHAT_ID,text:count===null?'أهلًا، اختر زوار الشهر من القائمة.':'زوار الشهر ('+month+'): '+(count?.total??0),reply_markup:{keyboard:[[{text:'زوار الشهر'}]],resize_keyboard:true}});
     return json({ok:true});
   }
   const trackingDecision = trackingDecisionPattern.exec(query?.data || '');
