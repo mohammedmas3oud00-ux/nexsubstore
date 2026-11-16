@@ -251,11 +251,20 @@ async function handleDecision(request, env) {
   if (!await authorizedTelegramRequest(request, env)) return json({ ok: false }, 403);
   const update = await request.json();
   const query = update.callback_query;
+  const isAdmin=(chat,user)=>chat?.type==='private' && String(chat.id)===env.TELEGRAM_CHAT_ID && String(user?.id)===env.TELEGRAM_CHAT_ID;
+  if(update.message?.text==='زوار الشهر'||update.message?.text==='/visitors'){
+    if(!isAdmin(update.message.chat,update.message.from))return json({ok:true});
+    if(!env.ORDERS_DB)return json({ok:false},503);
+    const month=omanMonth();
+    const count=await env.ORDERS_DB.prepare('SELECT COUNT(*) AS total FROM monthly_visitors WHERE month = ?').bind(month).first();
+    await telegram(env,'sendMessage',{chat_id:env.TELEGRAM_CHAT_ID,text:'زوار الشهر ('+month+'): '+(count?.total??0),reply_markup:{keyboard:[[{text:'زوار الشهر'}]],resize_keyboard:true}});
+    return json({ok:true});
+  }
   const trackingDecision = trackingDecisionPattern.exec(query?.data || '');
   const decision = trackingDecision || decisionPattern.exec(query?.data || '');
   if (!query || !decision) return json({ ok: true });
   const chat = query.message?.chat;
-  if (chat?.type !== 'private' || String(chat.id) !== env.TELEGRAM_CHAT_ID || String(query.from.id) !== env.TELEGRAM_CHAT_ID) {
+  if (!isAdmin(chat,query.from)) {
     await telegram(env, 'answerCallbackQuery', { callback_query_id: query.id, text: 'غير مصرح لك بمراجعة هذا الطلب.' });
     return json({ ok: true });
   }
