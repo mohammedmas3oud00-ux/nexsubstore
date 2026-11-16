@@ -1,0 +1,30 @@
+name: NEXSUB checks
+on:
+  pull_request:
+    paths:
+      - '_worker.js'
+      - 'index.html'
+      - 'catalog.v2026-11-17.js'
+      - 'tests/**'
+      - '.github/workflows/nexsub-checks.yml'
+  push:
+    branches:
+      - 'rebuild/nexsub-features'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run mocked integration tests
+        run: node --test tests/nexsub.test.mjs
+      - name: Verify no committed real secrets
+        run: |
+          if grep -nEi '(MICROESIM_SECRET|TELEGRAM_BOT_TOKEN|VISITOR_HASH_SECRET)\s*[:=]\s*["'"'"'][^"'"'"']{12,}' _worker.js index.html catalog.v2026-11-17.js; then
+            echo "Potential embedded secret in public source"
+            exit 1
+          fi
