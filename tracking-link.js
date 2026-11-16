@@ -14,4 +14,3 @@ copyButton.addEventListener('click', async () => {
     copyStatus.textContent = 'تم تحديد الرابط. انسخه من الخانة.';
   }
 });
-
