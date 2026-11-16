@@ -163,11 +163,9 @@ async function submitOrder(request, env) {
   const { id } = order;
   if (!created) {
     if (order.notification === 'sent') return json({ ok: true, tracking_url: '/order/' + id + '/' + access });
-    const claimed = await db.prepare(
-      "UPDATE orders SET notification = 'sending', notification_started_at = unixepoch() WHERE id = ? AND " +
-      "(notification = 'failed' OR (notification = 'sending' AND notification_started_at < unixepoch() - 60)) RETURNING id"
-    ).bind(id).first();
-    if (!claimed) return json({ ok: false, error: 'sending' }, 409);
+    // At-most-once notification: an uncertain Telegram response must not be retried automatically.
+    // A failed/sending request requires manual reconciliation to prevent duplicate admin messages.
+    return json({ ok: false, error: 'notification_pending' }, 409);
   }
   try {
     if (settings.mode === 'test') {
