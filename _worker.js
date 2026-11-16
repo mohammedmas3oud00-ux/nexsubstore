@@ -419,6 +419,53 @@ function deviceIds(top){
   const items=Array.isArray(value)?value:typeof value==='string'?value.split(','):[];
   return [...new Set(items.map(x=>typeof x==='object'?x?.device_id:String(x)).filter(x=>typeof x==='string'&&x.length&&x.length<160))].slice(0,20);
 }
+
+function dailyUsageEntries(raw, defaultUnit) {
+  if (raw == null || raw === '') return [];
+  const isScalar = raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    ('value' in raw || 'amount' in raw || 'data_usage' in raw || 'usage' in raw);
+  const rows = Array.isArray(raw) ? raw : isScalar ? [raw] :
+    typeof raw === 'object' ? Object.entries(raw).map(([date, value]) => ({date, value})) : [raw];
+  return rows.slice(0, 100).map(row => {
+    const value = row && typeof row === 'object' ?
+      row.data_usage ?? row.usage ?? row.value ?? row.amount : row;
+    const unit = row && typeof row === 'object' ? row.unit ?? defaultUnit : defaultUnit;
+    const quantity = formattedUsage(value, unit);
+    const date = row && typeof row === 'object' && typeof (row.date ?? row.day) === 'string'
+      ? (row.date ?? row.day).slice(0, 50) : '';
+    return quantity ? {date, amount:quantity.formatted} : null;
+  }).filter(Boolean);
+}
+
+async function countLegacyVisitor(request, env) {
+  if (!env.ORDERS_DB || !(env.VISITOR_HASH_SECRET || env.TELEGRAM_WEBHOOK_SECRET)) return json({ok:false},503);
+  const raw = await request.text().catch(() => '');
+  if (!validUuid.test(raw) || raw.length > 40) return json({ok:false},400);
+  const month = omanMonth();
+  const key = await hash(month + ':' + raw + ':' + (env.VISITOR_HASH_SECRET || env.TELEGRAM_WEBHOOK_SECRET));
+  await env.ORDERS_DB.prepare('INSERT OR IGNORE INTO monthly_visitors (month, visitor_hash) VALUES (?, ?)').bind(month,key).run();
+  return json({ok:true});
+}
+
+async function legacyUsageRequest(request, env) {
+  const path = new URL(request.url).pathname.replace(/\/usage\/?$/, '');
+  const match = trackingRoute.exec(path);
+  if (!match) return json({ok:false},404);
+  const reference = new URL(path, request.url).href;
+  const internal = new Request(new URL('/api/usage', request.url), {
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({reference})
+  });
+  const response = await usageRequest(internal,env);
+  if (!response.ok) return json({ok:false},response.status);
+  const result = await response.json();
+  return json({ok:true,usage:(result.devices||[]).map(device=>({
+    cumulative:device.usage?.formatted ?? null,
+    daily:device.daily_entries || (device.daily ? [{date:'',amount:device.daily.formatted}] : []),
+    resetTime:device.daily_reset_time ?? null
+  }))});
+}
+
 async function usageRequest(request,env){
   if(!env.ORDERS_DB)return json({ok:false},503);
   if(Number(request.headers.get('Content-Length')||0)>4096)return json({ok:false},413);
@@ -447,7 +494,7 @@ async function usageRequest(request,env){
     if(!ids.length)return json({ok:false,error:'unavailable'},503);
     const devices=await Promise.all(ids.map(async device_id=>{
       const data=await microesim(env,settings,'deviceDetail',{topup_id:order.topup_id,device_id});
-      return {usage:formattedUsage(data?.data_usage,data?.data_usage_unit??data?.unit),daily:formattedUsage(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),is_daily:data?.is_daily??null,daily_reset_time:data?.daily_reset_time??null};
+      return {usage:formattedUsage(data?.data_usage,data?.data_usage_unit??data?.unit),daily:formattedUsage(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),daily_entries:dailyUsageEntries(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),is_daily:data?.is_daily??null,daily_reset_time:data?.daily_reset_time??null};
     }));
     return json({ok:true,devices});
   }catch{return json({ok:false,error:'provider_unavailable'},502)}
@@ -464,10 +511,12 @@ export default {
       }
       if (path === '/api/usage') return request.method === 'POST' ? await usageRequest(request,env) : json({ok:false},405);
       if (path === '/api/visitor') return request.method === 'POST' ? await countVisitor(request,env) : json({ok:false},405);
+      if (path === '/api/visit') return request.method === 'POST' ? await countLegacyVisitor(request,env) : json({ok:false},405);
       if (path === '/api/order') return request.method === 'POST' ? await submitOrder(request, env) : json({ ok: false }, 405);
       if (path === '/api/telegram') return request.method === 'POST' ? await handleDecision(request, env) : json({ ok: false }, 405);
       if (path.startsWith('/order/')) {
         if (request.method !== 'GET') return json({ ok: false }, 405);
+        if (/\/usage\/?$/.test(path)) return await legacyUsageRequest(request,env);
         const match = trackingRoute.exec(path);
         if (!match || !env.ORDERS_DB) return trackingPage(null);
         const order = await env.ORDERS_DB.prepare('SELECT * FROM orders WHERE id = ? AND access_hash = ?')
