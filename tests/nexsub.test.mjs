@@ -172,6 +172,36 @@ test('visitor statistics command is admin-only',async()=>{
   assert.equal(calls.telegram,1);
 });
 
+test('cached production form and new eSIM form submit once with sender phone and receipt',async()=>{
+  const {env,calls}=environment();
+  const original=env.ORDERS_DB.prepare.bind(env.ORDERS_DB);
+  let saved=null;
+  env.ORDERS_DB.prepare=sql=>{
+    if(sql.startsWith('INSERT INTO orders '))return {bind:(...v)=>({first:async()=>{
+      if(saved)return null;
+      saved={id:v[0],order_number:77,notification:'sending',access_hash:v[1]};
+      return {id:saved.id,order_number:77};
+    }})};
+    if(sql.includes('SELECT id, order_number, notification FROM orders'))return {bind:()=>({first:async()=>saved})};
+    if(sql.includes("UPDATE orders SET notification = 'sent'"))return {bind:()=>({run:async()=>{saved.notification='sent';return {success:true}}})};
+    return original(sql);
+  };
+  const base=new FormData();
+  base.set('name','Legacy User');
+  base.set('product_id','gb1');
+  base.set('variant','0');
+  base.set('whatsapp','96890000000'); // actual old production form field
+  base.set('request_key',key);
+  base.set('receipt',new File(['fakepng'],'receipt.png',{type:'image/png'}));
+  const request=()=>new Request('https://nexsubstore.com/api/order',{method:'POST',body:base});
+  const api=engine(calls);
+  const first=await api.submitOrder(request(),env);
+  assert.equal(first.status,200);
+  assert.match((await first.json()).tracking_url,/^\/order\//);
+  const second=await api.submitOrder(request(),env);
+  assert.equal(second.status,200);
+  assert.equal(calls.network.filter(x=>x.url.includes('api.telegram.org')).length,1);
+});
 test('actual production Netflix/OSN+ flags and preserved static subscriptions',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const netflix=catalog.find(p=>p.id==='s-nf'),osn=catalog.find(p=>p.id==='s-osn');
