@@ -91,6 +91,8 @@ test('0 MB and decimal MB/GB conversion, explicit units',()=>{
   assert.equal(f(1000).formatted,'1 GB');
   assert.equal(f(1500).formatted,'1.5 GB');
   assert.equal(f('2 GB').formatted,'2 GB');
+  assert.equal(f('0 GB').formatted,'0 GB');
+  assert.equal(f('0 MB').formatted,'0 MB');
   assert.equal(f(500).assumed_mb,true);
   assert.equal(f(null),null);
   assert.equal(f('bogus'),null);
