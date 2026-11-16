@@ -377,6 +377,71 @@ function trackingPage(order) {
   );
 }
 
+
+function omanMonth(){
+  const p=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Muscat',year:'numeric',month:'2-digit'}).formatToParts(new Date());
+  return p.find(x=>x.type==='year').value+'-'+p.find(x=>x.type==='month').value;
+}
+async function countVisitor(request,env){
+  if(!env.ORDERS_DB||!(env.VISITOR_HASH_SECRET||env.TELEGRAM_WEBHOOK_SECRET))return json({ok:false},503);
+  const cookie=/(?:^|;\s*)nx_visitor=([0-9a-f]{64})(?:;|$)/.exec(request.headers.get('Cookie')||'');
+  const token=cookie?.[1]||hex(crypto.getRandomValues(new Uint8Array(32)));
+  const key=await hash(omanMonth()+':'+token+':'+(env.VISITOR_HASH_SECRET||env.TELEGRAM_WEBHOOK_SECRET));
+  await env.ORDERS_DB.prepare('INSERT OR IGNORE INTO monthly_visitors (month, visitor_hash) VALUES (?, ?)').bind(omanMonth(),key).run();
+  const response=json({ok:true});
+  response.headers.set('Set-Cookie','nx_visitor='+token+'; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax');
+  return response;
+}
+function formattedUsage(value,unit){
+  if(value==null||value==='')return null;
+  if(typeof value==='object'&&!Array.isArray(value))return formattedUsage(value.value??value.amount??value.data_usage,value.unit??unit);
+  const m=/^\s*(\d+(?:\.\d+)?)\s*(MB|GB|KB|B)?\s*$/i.exec(String(value));
+  if(!m)return null;
+  const amount=Number(m[1]),u=(m[2]||unit||'MB').toUpperCase();
+  const mb=u==='GB'?amount*1000:u==='KB'?amount/1000:u==='B'?amount/1000000:u==='MB'?amount:null;
+  if(mb===null||!Number.isFinite(mb))return null;
+  const num=mb>=1000?(mb/1000).toFixed(3):(mb).toFixed(2);
+  return {formatted:num.replace(/\.?0+$/,'')+(mb>=1000?' GB':' MB'),unit:u,assumed_mb:!m[2]&&!unit};
+}
+function deviceIds(top){
+  const value=top?.device_ids??top?.deviceIds??top?.devices;
+  const items=Array.isArray(value)?value:typeof value==='string'?value.split(','):[];
+  return [...new Set(items.map(x=>typeof x==='object'?x?.device_id:String(x)).filter(x=>typeof x==='string'&&x.length&&x.length<160))].slice(0,20);
+}
+async function usageRequest(request,env){
+  if(!env.ORDERS_DB)return json({ok:false},503);
+  if(Number(request.headers.get('Content-Length')||0)>4096)return json({ok:false},413);
+  const payload=await request.json().catch(()=>null);
+  const reference=typeof payload?.reference==='string'?payload.reference.trim().slice(0,2048):'';
+  let order=null;
+  try{
+    const url=new URL(reference,new URL(request.url).origin);
+    const here=new URL(request.url),match=trackingRoute.exec(url.pathname);
+    if(match&&!url.search&&!url.hash&&!url.username&&!url.password&&
+      ['nexsubstore.com','www.nexsubstore.com',here.hostname].includes(url.hostname)&&
+      (url.protocol==='https:'||here.hostname==='localhost'&&url.protocol==='http:'))
+      order=await env.ORDERS_DB.prepare('SELECT * FROM orders WHERE id = ? AND access_hash = ?').bind(match[1],await hash(match[2])).first();
+  }catch{}
+  if(!order&&/^LPA:1\$[\x21-\x7e]{1,500}$/i.test(reference)){
+    const found=await env.ORDERS_DB.prepare("SELECT * FROM orders WHERE status = 'ready' AND instr(delivery, ?) > 0 LIMIT 100").bind(reference).all();
+    order=(found.results||[]).find(row=>{try{return JSON.parse(row.delivery||'{}').lpa===reference}catch{return false}})||null;
+  }
+  if(!order)return json({ok:false,error:'not_found'},404);
+  if(order.status!=='ready'||!order.topup_id)return json({ok:false,error:'not_ready'},409);
+  const settings=providerSettings(env);
+  if(!settings||settings.mode!==order.mode)return json({ok:false,error:'unavailable'},503);
+  try{
+    const top=await microesim(env,settings,'topupDetail',{topup_id:order.topup_id});
+    const ids=deviceIds(top);
+    if(!ids.length)return json({ok:false,error:'unavailable'},503);
+    const devices=await Promise.all(ids.map(async device_id=>{
+      const data=await microesim(env,settings,'deviceDetail',{topup_id:order.topup_id,device_id});
+      return {usage:formattedUsage(data?.data_usage,data?.data_usage_unit??data?.unit),daily:formattedUsage(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),is_daily:data?.is_daily??null,daily_reset_time:data?.daily_reset_time??null};
+    }));
+    return json({ok:true,devices});
+  }catch{return json({ok:false,error:'provider_unavailable'},502)}
+}
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
@@ -386,6 +451,8 @@ export default {
         const settings = orderSettings(env);
         return json({ mode: settings?.mode, catalog_version: CATALOG_VERSION, variants: Object.keys(settings?.plans || {}) });
       }
+      if (path === '/api/usage') return request.method === 'POST' ? await usageRequest(request,env) : json({ok:false},405);
+      if (path === '/api/visitor') return request.method === 'POST' ? await countVisitor(request,env) : json({ok:false},405);
       if (path === '/api/order') return request.method === 'POST' ? await submitOrder(request, env) : json({ ok: false }, 405);
       if (path === '/api/telegram') return request.method === 'POST' ? await handleDecision(request, env) : json({ ok: false }, 405);
       if (path.startsWith('/order/')) {
