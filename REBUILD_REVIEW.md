@@ -29,3 +29,14 @@
 - **Not live-tested:** actual MicroeSIM payloads/signature, real Telegram delivery, real Cloudflare preview browser/mobile, and QR scanning on actual iOS/Android devices. Provider confirmation of speed policy, optional remaining allowance and expiration fields is still required.
 - jsQR 1.4.0 is loaded from pinned CDN fallback; native BarcodeDetector is preferred. Decode stays in browser but CDN availability should be verified for target mobile browsers.
 - Existing public support/payment numbers and image files should be reviewed to ensure they are intentionally public. The repository has no committed customer orders or database copies in the inspected original tree.
+
+## Live preview repair (2026-11-17)
+- Preview project: `nexsubstore` on Cloudflare account `Mohammedmasoud.work@gmail.com's Account`, alias `https://rebuild-nexsub-features.nexsubstore-4ed.pages.dev`.
+- Created dedicated D1 `nexsubstore-rebuild-preview` (`f5add206-a8b6-4ff1-8a58-2c13ba6d0dd7`) in the same account, with an **empty** copy of the legacy `orders` schema and `monthly_visitors` table. No production data copied.
+- Added `ORDERS_DB` binding to **preview** Pages config only, set `MICROESIM_MODE=test`, and generated `VISITOR_HASH_SECRET` as an encrypted Cloudflare preview environment variable without committing its value.
+- Deployed branch as a **Preview** using the current 11-asset manifest and the GitHub Worker without changing the production branch. Cloudflare confirmed successful deployment.
+- Cloudflare Browser Rendering successfully loaded the actual Arabic RTL page and verified the usage form. `/api/esim-availability` live response confirmed catalog version `2026-11-17` but reported zero orderable variants because MicroeSIM/Telegram credentials are not configured.
+- Preview D1 showed one recorded visitor from a real browser-rendering page load, confirming that the frontend visitor ping reaches the new D1 binding. Test counts should not be interpreted as organic traffic.
+- **Credentials still required to activate real integration:** account-specific sandbox/test `MICROESIM_ACCOUNT`, `MICROESIM_SECRET`, `MICROESIM_SALT`, plus an isolated test Telegram bot token, admin chat ID and webhook secret. Do not copy production secrets or run real sales on preview.
+- The external test client cannot directly GET the public preview URL but the Cloudflare managed browser fetched and rendered it. Actual phone/QR and provider endpoints remain untested against live credentials.
+- Additional bootstrap migration: `migrations/0000_preview_orders_bootstrap.sql`. This is additive and must not be used to overwrite any existing `orders` table.
