@@ -8,7 +8,7 @@ const source=readFileSync(new URL('../_worker.js',import.meta.url),'utf8').repla
 const catalogText=readFileSync(new URL('../catalog.v2026-11-17.js',import.meta.url),'utf8');
 const catalog=JSON.parse(catalogText.trim().slice('globalThis.NX_CATALOG = '.length,-1));
 const factory=new Function('TextEncoder','Response','crypto','URL','fetch','File','FormData','Request',source+
-  '\nreturn {worker,formattedUsage,deviceIds,omanMonth,VERIFIED_PLANS,VERIFIED_SPECS,usageRequest,countVisitor,submitOrder,handleDecision};');
+  '\nreturn {worker,formattedUsage,deviceIds,omanMonth,VERIFIED_PLANS,VERIFIED_SPECS,usageRequest,countVisitor,countLegacyVisitor,legacyUsageRequest,dailyUsageEntries,submitOrder,handleDecision};');
 const uuid='8f8125fb-e978-41af-9767-1d41fa1260ab';
 const key='aef93f65-cc39-40dc-a513-3d487e91787c';
 const accessHash=createHash('sha256').update(key).digest('hex');
@@ -170,4 +170,81 @@ test('visitor statistics command is admin-only',async()=>{
   assert.equal(calls.telegram,0);
   await api.handleDecision(telegramReq(123),env);
   assert.equal(calls.telegram,1);
+});
+
+test('actual production Netflix/OSN+ flags and preserved static subscriptions',()=>{
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  const netflix=catalog.find(p=>p.id==='s-nf'),osn=catalog.find(p=>p.id==='s-osn');
+  assert.equal(netflix.checkout,'site');assert.equal(osn.checkout,'site');
+  assert.equal(catalog.filter(p=>p.fam==='sub'&&p.checkout!=='site').length,9);
+  assert.match(html,/function labelOnly\(p\)/);
+  assert.match(html,/class="sp sp-static"/);
+  assert.match(html,/src="\/visitors\.js"/);
+  assert.match(html,/id="usage-form"/);
+  assert.match(html,/name="transfer_whatsapp"/);
+  assert.match(html,/catalog\.v2026-11-17\.js/);
+  assert.equal(html.includes('128 كيلوبت'),false);
+  for(const file of ['catalog-20261116.js','order-usage.js','visitors.js'])
+    assert.ok(readFileSync(new URL('../'+file,import.meta.url),'utf8').length>0);
+});
+test('production legacy /api/visit remains idempotent per browser UUID',async()=>{
+  const {env,calls}=environment(),api=engine(calls);
+  const payload=id=>new Request('https://nexsubstore.com/api/visit',{method:'POST',body:id});
+  const first=await api.worker.fetch(payload(uuid),env);
+  const second=await api.worker.fetch(payload(uuid),env);
+  assert.equal(first.status,200);assert.equal(second.status,200);
+  assert.equal(calls.visitors.size,1);
+  assert.equal((await api.worker.fetch(payload('invalid-token'),env)).status,400);
+});
+test('legacy tracking /usage endpoint accepts valid access and denies invalid access',async()=>{
+  const {env,calls}=environment(),api=engine(calls);
+  const response=await api.worker.fetch(new Request(track+'/usage'),env);
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.ok,true);
+  assert.equal(data.usage[0].cumulative,'0 MB');
+  assert.deepEqual(data.usage[0].daily,[{date:'',amount:'1.5 GB'}]);
+  assert.equal(data.usage[0].resetTime,'12:00');
+  assert.equal((await api.worker.fetch(new Request(track.replace(key,uuid)+'/usage'),env)).status,404);
+  assert.equal(calls.network.filter(x=>x.url.endsWith('/deviceDetail')).length,1);
+});
+test('daily usage series retains dated readings including exactly zero',async()=>{
+  const {env,calls}=environment();
+  const api=engine(calls,{deviceData:{data_usage:'0 GB',data_usage_daily:[
+    {date:'2026-11-15',data_usage:'100 MB'},
+    {date:'2026-11-16',data_usage:0}
+  ],daily_reset_time:'00:00'}});
+  const res=await api.usageRequest(usage(track),env);
+  assert.equal(res.status,200);
+  const data=await res.json();
+  assert.equal(data.devices[0].usage.formatted,'0 GB');
+  assert.deepEqual(data.devices[0].daily_entries,[
+    {date:'2026-11-15',amount:'100 MB'},
+    {date:'2026-11-16',amount:'0 MB'}
+  ]);
+});
+test('double Telegram approval claims a pending order only once and issues once',async()=>{
+  const {env,calls,order}=environment('pending');
+  const orig=env.ORDERS_DB.prepare.bind(env.ORDERS_DB);
+  let claimed=false;
+  env.ORDERS_DB.prepare=sql=>{
+    if(sql.includes("UPDATE orders SET status = ?, decided_at = unixepoch()")){
+      return {bind:()=>({first:async()=>{
+        if(claimed)return null;
+        claimed=true;
+        return {id:uuid,order_number:11,plan_id:'7876dde7-774b-430e-bfe1-e445f4318878',access_hash:accessHash};
+      }})};
+    }
+    return orig(sql);
+  };
+  const api=engine(calls);
+  const message={
+    callback_query:{id:'callback-1',data:'accept:'+uuid,from:{id:123},
+      message:{chat:{type:'private',id:123},message_id:11,text:'Test pending order'}}
+  };
+  const req=()=>({headers:new Headers({'X-Telegram-Bot-Api-Secret-Token':env.TELEGRAM_WEBHOOK_SECRET}),
+    json:async()=>message,url:'https://nexsubstore.com/api/telegram'});
+  assert.equal((await api.handleDecision(req(),env)).status,200);
+  assert.equal((await api.handleDecision(req(),env)).status,200);
+  assert.equal(calls.network.filter(x=>x.url.endsWith('/esimSubscribe')).length,1);
 });
