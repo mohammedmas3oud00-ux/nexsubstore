@@ -373,7 +373,8 @@ details.q p{margin-top:12px;color:#a9aed0;font-size:16px}
 .sq-grid.sub .sq b{font-size:18px}
 .shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px;margin-top:28px}
 .sp{cursor:pointer;border:0;padding:0;text-align:center;font-family:inherit;background:#eef3ff;color:#0b1d5a;border-radius:22px;overflow:hidden;box-shadow:0 14px 36px rgba(0,0,0,.35);transition:.18s;display:flex;flex-direction:column}
-.sp:hover{transform:translateY(-4px)}
+button.sp:hover{transform:translateY(-4px)}
+.sp-static{cursor:default}
 .sp-sim{margin:16px 16px 0;border-radius:16px 16px 6px 6px;background:linear-gradient(150deg,#1b3fb3,#0a2478);color:#fff;padding:16px 12px 14px;border:3px solid #fff;box-shadow:0 0 0 3px #1b3fb3}
 .sp-sim{text-align:center}.sp-chip{width:42px;height:32px;margin:0 auto 6px;border-radius:7px;background:linear-gradient(135deg,#ffe9a8,#e2b04a);}
 .sp-sim small{display:block;font-size:14px;font-weight:700;letter-spacing:1px;opacity:.9}
@@ -434,7 +435,7 @@ details.q p{margin-top:12px;color:#a9aed0;font-size:16px}
 .cres .btn{margin-top:10px;padding:10px 22px;font-size:17px}
 .offer[hidden],.calcbox[hidden]{display:none}
 .pp-pay{padding:12px 16px;border-radius:14px;background:#0f3d2a;border:1px solid #1d8a5a;font-size:17px;font-weight:700;margin-top:10px;direction:rtl}
-.pp-pay[hidden],#ppw[hidden],#ppwl[hidden]{display:none}
+.pp-pay[hidden],#ppw[hidden],#ppwl[hidden],#pptw[hidden],#pptwl[hidden]{display:none}
 .devs{align-self:flex-start;width:100%}
 .devs summary{font-weight:700;color:#9db4ff;font-size:17px;cursor:pointer;list-style:none}
 .devs summary::before{content:"▸ ";}
@@ -660,9 +661,11 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
         <form id="ppform" autocomplete="on"><input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;height:0">
           <label class="pp-l" for="ppn">الاسم</label>
           <input id="ppn" name="name" type="text" required placeholder="اسمك">
-          <label class="pp-l" for="ppw" id="ppwl">رقم الواتساب</label>
+          <label class="pp-l" id="ppwl" for="ppw">رقم واتساب الاشتراك</label>
           <input id="ppw" name="whatsapp" type="tel" inputmode="tel" dir="ltr" required placeholder="+968 ...">
-          <label class="pp-l" for="ppr" id="pprl">صورة إيصال التحويل (اختياري)</label>
+          <label class="pp-l" id="pptwl" for="pptw">رقم واتساب الشخص الذي حوّل المبلغ</label>
+          <input id="pptw" name="transfer_whatsapp" type="tel" inputmode="tel" dir="ltr" placeholder="+968 ...">
+          <label class="pp-l" for="ppr" id="pprl">صورة إيصال التحويل</label>
           <input id="ppr" name="receipt" type="file" accept="image/*,application/pdf">
           <button class="btn pri pp-go" id="ppgo" type="submit">اطلب الآن</button>
           <p class="pp-note" id="ppnote">بعد مراجعة التحويل تقدر تستلم الشريحة من رابط طلبك.</p>
@@ -731,8 +734,15 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
   <!-- FAQ -->
   <section id="usage" class="sec wrap" style="max-width:900px">
     <h2>متابعة استهلاك الشريحة</h2>
-    <p class="sub">تابع الباقي من باقتك وتاريخ انتهائها من الرابط.</p>
-    <a id="usagelink" class="btn pri" href="#support" data-wa="مرحبا، أريد متابعة استهلاك شريحتي" target="_blank" rel="noopener" style="display:inline-flex;margin-top:14px">تابع استهلاك شريحتك</a>
+    <p class="sub">اعرف استهلاك شريحتك من رابط متابعة الطلب أو صورة QR الخاصة بتفعيل الشريحة.</p>
+    <form id="usage-form" style="display:grid;gap:12px;max-width:560px;margin-top:16px">
+      <label for="usage-reference">الصق رابط متابعة الطلب</label>
+      <input id="usage-reference" type="text" inputmode="url" dir="ltr" autocomplete="off" placeholder="https://nexsubstore.com/order/..." style="width:100%;min-width:0;padding:12px;color:#fff;background:#18254e;border:1px solid #5066a6;border-radius:12px">
+      <label for="usage-qr">أو اختر صورة QR لتفعيل الشريحة</label>
+      <input id="usage-qr" type="file" accept="image/*">
+      <button class="btn pri" type="submit">عرض الاستهلاك</button>
+      <p id="usage-feedback" role="status" aria-live="polite" style="white-space:pre-line;overflow-wrap:anywhere"></p>
+    </form>
   </section>
 
   <section id="faq" class="sec wrap" style="max-width:900px">
@@ -778,14 +788,15 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
 </div>
 
 
-<script src="/catalog.js"></script>
+<script src="/catalog.v2026-11-17.js"></script>
 <script>
 (function(){
   // ---- بيانات الباقات: السعر بالبيسة (1000 بيسة = 1 ريال). السعر null = لم يحدده صاحب المتجر بعد ----
   var P=globalThis.NX_CATALOG;
+  var CATALOG_VERSION='2026-11-17';
   var GRP={sub:[['v','مشاهدة','أفلام ومسلسلات ورياضة'],['g','ألعاب','ستيم'],['t','أدوات','كانفا برو'],['x','تواصل','سناب بلس']]};
   // أقسام الشرايح: كل قسم ليه أنواع جواه، وأي شريحة جديدة بتتضاف هنا
-  var LINES=[['om','شرائح عُمان وباقات +52',[['gb','جيجا'],['un','لامحدود']]],['ct','شرائح الدول',null]];
+  var LINES=[['om','شرائح عُمان وباقات +52',[['gb','جيجا'],['un','اللامحدود']]],['ct','شرائح الدول',null]];
   var st={fam:'all',line:'',k:'',grp:'',q:''};
   var $=function(i){return document.getElementById(i)};
   var grid=$('shopgrid'); if(!grid) return;
@@ -794,8 +805,9 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
   function money2(b){ if(b==null) return 'السعر قريبًا'; return b<1000? b+' بيسة' : money(b); }
   function dl(x){ return x[2]||days(x[0]); }
   function days(n){ return n===1?'يوم واحد':(n===2?'يومان':(n<=10? n+' أيام': n+' يومًا')); }
-  function canOrder(p,index){ return p.fam==='sub' || availability.variants.includes(p.id+':'+index); }
-  function from(p){ var m=null; p.d.forEach(function(x,index){ if(canOrder(p,index) && x[1]!=null && (m===null||x[1]<m)) m=x[1]; }); return m; }
+  function labelOnly(p){ return p.fam==='sub' && p.checkout!=='site'; }
+  function canOrder(p,index){ return p.fam==='sub' ? !labelOnly(p) : (availability.catalog_version===CATALOG_VERSION && availability.variants.includes(p.id+':'+index)); }
+  function from(p){ var m=null; p.d.forEach(function(x,index){ if((labelOnly(p) || canOrder(p,index)) && x[1]!=null && (m===null||x[1]<m)) m=x[1]; }); return m; }
   function simHTML(p,d){ if(p.fam==='ct') return '<div class="sp-sim ct"><div class="sp-flag">'+p.fl+'</div><small>eSIM</small><strong>'+p.big+'</strong><em>شريحة دولة</em></div>'; if(p.fam==='sub') return '<div class="sp-sim sb" style="--c:'+p.c+'"><small>اشتراك رقمي</small><strong>'+p.big+'</strong><em>'+(d||'')+'</em></div>'; return '<div class="sp-sim"><div class="sp-chip"></div><small>eSIM</small><strong>'+p.big+(p.unit==='DATA'?'':' '+p.unit)+(p.unit==='DATA'?'<br>'+p.unit:'')+'</strong><em>'+(d?d+' يوم':'عُمان وباقات +52')+'</em></div>'; }
 
   function cnt(f){ return P.filter(function(p){return f(p)}).length; }
@@ -822,8 +834,19 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
       var f=from(p);
       var inquiry=p.fam==='ct' && !p.d.length;
       var review=p.fam==='ct' && availability.mode==='test' && p.d.length;
-      var priceLabel=f!=null?'تبدأ من '+money2(f):inquiry?'السعر عند الطلب':review?'عرض الباقات والأسعار':availabilityLoading?'جارٍ التحقق':'غير متاح حاليًا';
-      html+='<button type="button" class="sp" data-id="'+p.id+'">'+simHTML(p)+'<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+'<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span><span class="go">'+(inquiry?'اطلب عبر واتساب':p.fam==='sub'?'اختر المدة':'اختر النوع والمدة')+'</span></div></button>';
+      var priceLabel=f!=null?'تبدأ من '+money2(f):inquiry?'غير متاح للطلب المباشر':review?'عرض الباقات والأسعار':availabilityLoading?'جارٍ التحقق':'غير متاح حاليًا';
+      var info='<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+
+        '<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span>';
+      if(labelOnly(p)){
+        html+='<article class="sp sp-static">'+simHTML(p)+info+'<span>اطلب عبر واتساب</span></div></article>';
+        return;
+      }
+      if(inquiry){
+        html+='<article class="sp sp-static">'+simHTML(p)+info+'</div></article>';
+        return;
+      }
+      var action=p.fam==='sub'?'اختر المدة':'اختر النوع والمدة';
+      html+='<button type="button" class="sp" data-id="'+p.id+'">'+simHTML(p)+info+'<span class="go">'+action+'</span></div></button>';
     });
     grid.innerHTML=html;
     $('shopempty').hidden = list.length>0;
@@ -864,12 +887,12 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
   (function buildTypes(){
     var h='<optgroup label="شرائح الجيجا">';
     P.filter(function(p){return p.fam==='gb'}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
-    h+='</optgroup><optgroup label="شرائح لامحدودة">';
+    h+='</optgroup><optgroup label="باقات اللامحدود">';
     P.filter(function(p){return p.fam==='un'}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
     h+='</optgroup><optgroup label="شرائح الدول">';
     P.filter(function(p){return p.fam==='ct' && p.d.length>0;}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
     h+='</optgroup><optgroup label="اشتراكات رقمية">';
-    P.filter(function(p){return p.fam==='sub'}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
+    P.filter(function(p){return p.fam==='sub' && !labelOnly(p)}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
     h+='</optgroup>'; selT.innerHTML=h;
   })();
   function byId(id){ return P.filter(function(p){return p.id===id})[0]; }
@@ -895,31 +918,36 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     $('pptitle').textContent=test ? 'شريحة تجريبية · الصين وهونغ كونغ وماكاو · يوم واحد' : p.t+' · '+dl(x);
     $('ppcard').innerHTML=test ? '' : simHTML(p,esim?x[0]:x[2]);
     $('ppp').textContent=test ? 'مجاني للاختبار' : money2(x[1]);
+    $('ppr').required=esim && available;
     $('ppw').hidden=esim;
     $('ppw').required=!esim;
     $('ppwl').hidden=esim;
-    $('ppr').required=esim && available;
-    $('pprl').textContent=test ? 'صورة إيصال تجريبية' : esim ? 'صورة إيصال التحويل' : 'صورة إيصال التحويل (اختياري)';
+    $('pptw').hidden=!esim;
+    $('pptw').required=esim;
+    $('pptwl').hidden=!esim;
+    $('pprl').textContent=test ? 'صورة إيصال تجريبية' : 'صورة إيصال التحويل';
     $('pppay').hidden=!$('pppay').textContent || !available || test;
     $('ppnote').textContent=test ? 'استخدم صورة إيصال تجريبية. مش مطلوب تحويل فلوس.' :
       p.fam==='ct' && availability.mode==='test' ? 'معاينة الباقات والأسعار.' :
       !available ? (availabilityLoading ? 'جارٍ التحقق من توفر الباقة…' : 'الباقة غير متاحة للطلب حاليًا.') :
-      esim ? (p.id==='mb500' ? 'بعد استهلاك 500 ميجا تنخفض السرعة إلى 128 كيلوبت/ثانية. ' : '') +
-        'حوّل المبلغ وارفع الإيصال، وبعد إرسال الطلب احتفظ برابط متابعة الشريحة.' :
-      'بعد مراجعة التحويل هنرسل لك بيانات الاشتراك على واتساب.';
+      !esim ? 'حوّل المبلغ وأرسل الطلب لمراجعة التحويل.' :
+        'حوّل المبلغ وارفع الإيصال، وبعد إرسال الطلب احتفظ برابط متابعة الشريحة.';
     $('ppgo').disabled=submitting || !available || x[1]==null;
     $('ppgo').textContent=submitting ? 'جارٍ الإرسال…' : !available ? 'غير متاح' : 'اطلب الآن';
   }
   function openPP(id){
+    var product=byId(id);
+    if(!product || labelOnly(product) || !product.d.length) return;
     last=document.activeElement; selT.value=id; fillDur();
     var old=pp.querySelector('.pp-ok'); if(old) old.remove();
     pp.hidden=false; back.hidden=false; document.documentElement.style.overflow='hidden';
     setTimeout(function(){ $('ppx').focus(); },30);
   }
   function closePP(){ pp.hidden=true; back.hidden=true; document.documentElement.style.overflow=''; if(last&&last.focus) last.focus(); }
-  grid.addEventListener('click',function(e){ var b=e.target.closest('.sp'); if(!b) return; var p=byId(b.getAttribute('data-id'));
-    if(p && p.fam==='ct' && !p.d.length){ var w=$('wabtn'); var base=(w&&w.href.indexOf('wa.me')>0)?w.href.split('?')[0]:''; if(base) window.open(base+'?text='+encodeURIComponent('مرحبا، أريد شريحة eSIM لـ'+p.t+'، كم الأسعار؟'),'_blank','noopener'); return; }
-    openPP(p.id); });
+  grid.addEventListener('click',function(e){
+    var button=e.target.closest('button.sp');
+    if(button) openPP(button.getAttribute('data-id'));
+  });
   selT.addEventListener('change',fillDur); selD.addEventListener('change',upd);
   $('ppx').addEventListener('click',closePP); back.addEventListener('click',closePP);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape' && !pp.hidden) closePP(); });
@@ -930,18 +958,18 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     if(submitting || $('ppgo').disabled) return;
     var p=byId(selT.value), variant=+selD.value||0;
     var fd=new FormData(), rc=$('ppr').files[0];
-    if(rc && rc.size>5*1024*1024){ done(false,'حجم الإيصال أكبر من 5 ميجا، اختر صورة أصغر.'); return; }
+    if(rc && rc.size>5*1024*1024){ showError('حجم الإيصال أكبر من 5 ميجا، اختر صورة أصغر.'); return; }
     fd.append('name',$('ppn').value.trim());
     fd.append('product_id',p.id);
+    fd.append('catalog_version',CATALOG_VERSION);
     fd.append('variant',String(variant));
     fd.append('website',$('ppform').elements.website.value);
     if(p.fam==='sub') fd.append('whatsapp',$('ppw').value.trim());
-    else {
-      if(!requestKey || requestKey.variant!==p.id+':'+variant) {
-        requestKey={variant:p.id+':'+variant,key:crypto.randomUUID()};
-      }
-      fd.append('request_key',requestKey.key);
+    else fd.append('transfer_whatsapp',$('pptw').value.trim());
+    if(!requestKey || requestKey.variant!==p.id+':'+variant) {
+      requestKey={variant:p.id+':'+variant,key:crypto.randomUUID()};
     }
+    fd.append('request_key',requestKey.key);
     if(rc) fd.append('receipt',rc);
     submitting=true;
     upd();
@@ -949,8 +977,8 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
       .then(function(r){ return r.json(); })
       .then(function(data){
         if(!data.ok){
-          var messages={receipt_type:'ارفع صورة للإيصال أو ملف PDF.',receipt_required:'ارفع إيصال التحويل لإرسال الطلب.',sending:'الطلب جارٍ إرساله. جرّب تاني بعد لحظات.'};
-          done(false,messages[data.error]);
+          var messages={invalid_whatsapp:'أدخل رقم واتساب صحيحًا.',transfer_whatsapp_required:'أدخل رقم واتساب الشخص الذي حوّل المبلغ.',catalog_version:'حدّث الصفحة قبل الطلب.',receipt_type:'ارفع صورة للإيصال أو ملف PDF.',receipt_required:'ارفع إيصال التحويل لإرسال الطلب.',sending:'الطلب جارٍ إرساله. جرّب تاني بعد لحظات.'};
+          showError(messages[data.error]);
           return;
         }
         if(data.tracking_url){
@@ -958,15 +986,22 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
           location.assign(data.tracking_url);
           return;
         }
-        done(p.fam==='sub');
+        if(p.fam==='sub'){
+          requestKey=null;
+          $('ppform').reset();
+          showStatus('وصل طلبك. هنراجع التحويل ونتواصل معاك لتأكيد الاشتراك.');
+          return;
+        }
+        showError();
       })
-      .catch(function(){ done(false); });
-    function done(ok,msg){
+      .catch(function(){ showError(); });
+    function showError(msg){ showStatus(msg||'تعذر إرسال الطلب الآن، حاول مرة أخرى بعد قليل.'); }
+    function showStatus(msg){
       submitting=false;
       upd();
       var old=pp.querySelector('.pp-ok'); if(old) old.remove();
       var d=document.createElement('div'); d.className='pp-ok'; d.setAttribute('role','status');
-      d.textContent=ok ? 'وصلنا طلبك. هنراجع التحويل ونرسل لك بيانات الاشتراك على واتساب.' : (msg||'تعذر إرسال الطلب الآن، حاول مرة أخرى بعد قليل.');
+      d.textContent=msg;
       $('ppform').appendChild(d);
     }
   });
@@ -1062,9 +1097,8 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
 })();
 </script>
 <script>(function(){function o(){var h=location.hash.slice(1);var d=h&&document.getElementById(h);if(d&&d.tagName==='DETAILS'){d.open=true;d.scrollIntoView({block:'center'});}}document.querySelectorAll('[data-legal]').forEach(function(a){a.addEventListener('click',function(){setTimeout(o,0)})});window.addEventListener('hashchange',o);})();</script>
-<script>
-// رابط متابعة الاستهلاك من مزوّد الشرائح: حطيه هنا ويشتغل الزرار عليه. لو فاضي الزرار بيفتح الواتساب.
-(function(){ var USAGE_URL=''; var a=document.getElementById('usagelink'); if(!a) return; if(USAGE_URL){ a.removeAttribute('data-wa'); a.href=USAGE_URL; } else { var s=a.parentNode.querySelector('.sub'); if(s) s.textContent='راسل الدعم على الواتساب وسنرسل لك المتبقي من باقتك وتاريخ انتهائها.'; a.textContent='اسأل الدعم عن استهلاكك'; } })();
-</script>
+<script defer src="/visitors.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
+<script defer src="/usage-main.js"></script>
 </body>
 </html>

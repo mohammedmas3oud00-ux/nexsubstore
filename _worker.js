@@ -7,6 +7,9 @@ const trackingRoute = new RegExp('^/order/(' + uuid + ')/(' + uuid + ')/?$');
 const decisionPattern = new RegExp('^(accept|reject):(' + uuid + ')$');
 const trackingDecisionPattern = new RegExp('^(a):(' + uuid + '):([A-Za-z0-9_-]{22})$');
 const catalogPrefix = 'globalThis.NX_CATALOG = ';
+const CATALOG_VERSION='2026-11-17';
+const VERIFIED_PLANS={"gb1:0":"7876dde7-774b-430e-bfe1-e445f4318878","gb2:0":"9e6f8cda-6ba6-45ad-9180-c70b61f8f6ef","gb3:0":"6e252d80-4359-4c45-a7df-7b3f43e6451b","un:0":"18d0cdfe-0554-4702-852f-60309ac1f2db","un:1":"ec4c6793-a092-4362-9a46-97143c2050dd","un:2":"4b15a5a9-e04f-43ff-b153-eab2ab793c78","un:3":"53014496-0cd7-4dc3-b1c9-b916479a14a4","un:4":"0cf0f2f4-ad9b-477b-ae7f-41d1ebab300d","un:5":"f83798cd-faa6-457e-b2b2-df72cc03c4ad","un:6":"cd545300-8ad7-4b75-a979-2f1ea1b9f8af","un:7":"12fd3bc7-5c9a-409b-8bd2-d85578ee777b","un:8":"a221645f-dc2a-4a70-a647-edcd3461a8de","un:9":"523adb5b-0f31-42da-a116-0a11fbad43d2","un:10":"0c1c4ac2-2584-40b7-a7c4-68d439b01138","un:11":"34bc0542-eacd-4213-a73c-a0ef3f8f1cd0","un:12":"cfaffaa0-25ad-49e5-beac-f6a2148827a6","un:13":"60aa7ffa-2e37-4035-91ea-35844a023743"};
+const VERIFIED_SPECS={"gb1:0":{"days":1,"price":450},"gb2:0":{"days":1,"price":700},"gb3:0":{"days":1,"price":900},"un:0":{"days":1,"price":1000},"un:1":{"days":2,"price":1800},"un:2":{"days":3,"price":2500},"un:3":{"days":4,"price":3200},"un:4":{"days":5,"price":3600},"un:5":{"days":6,"price":4200},"un:6":{"days":7,"price":5000},"un:7":{"days":8,"price":5500},"un:8":{"days":9,"price":6200},"un:9":{"days":10,"price":6700},"un:10":{"days":15,"price":10000},"un:11":{"days":20,"price":13000},"un:12":{"days":25,"price":15500},"un:13":{"days":30,"price":16500}};
 const utf8 = new TextEncoder();
 
 function json(value, status = 200) {
@@ -31,10 +34,11 @@ function providerSettings(env) {
     return { mode: 'test', base: 'https://test.microesim.com', plans: { [testVariant]: testPlanId } };
   }
   if (env.MICROESIM_MODE !== 'production') return null;
-  const mapping = JSON.parse(env.MICROESIM_PLAN_MAP || '{}');
+  let mapping;
+  try { mapping = JSON.parse(env.MICROESIM_PLAN_MAP || '{}'); } catch { return null; }
   const plans = Object.fromEntries(Object.entries(mapping).filter(([key, value]) =>
     /^[a-z0-9-]+:\d+$/.test(key) && typeof value === 'string' && value.trim() && !value.startsWith('test9999-')));
-  return { mode: 'production', base: 'https://business.microesim.com', plans };
+  return { mode: 'production', base: 'https://business.microesim.com', plans: {...plans,...VERIFIED_PLANS} };
 }
 
 function orderSettings(env) {
@@ -45,7 +49,7 @@ function orderSettings(env) {
 }
 
 async function getCatalog(request, env) {
-  const asset = await env.ASSETS.fetch(new Request(new URL('/catalog.js', request.url)));
+  const asset = await env.ASSETS.fetch(new Request(new URL('/catalog.v2026-11-17.js', request.url)));
   const text = (await asset.text()).trim();
   if (!asset.ok || !text.startsWith(catalogPrefix) || !text.endsWith(';')) throw new Error('Catalog unavailable');
   return JSON.parse(text.slice(catalogPrefix.length, -1));
@@ -117,6 +121,14 @@ async function submitOrder(request, env) {
   const product = (await getCatalog(request, env)).find(item => item.id === productId);
   const variant = /^\d+$/.test(index) ? product?.d[Number(index)] : undefined;
   if (!name || !variant || !Number.isInteger(variant[1]) || variant[1] <= 0) return json({ ok: false }, 400);
+  const planKey=productId+':'+Number(index),spec=VERIFIED_SPECS[planKey];
+  if(spec && (variant[0]!==spec.days || variant[1]!==spec.price)) return json({ok:false,error:'catalog_mismatch'},503);
+  // Legacy country packs are orderable only if priced in this catalog and mapped by the server.
+  if(product.fam==='sub'&&!['s-nf','s-osn'].includes(productId))return json({ok:false,error:'unavailable'},403);
+  // Existing 2026-11-16 storefronts do not submit a catalog_version field.
+  // The verified live catalog is identical; keep their requests valid while validating server price/plan.
+  const clientCatalogVersion = clean(form.get('catalog_version'),32);
+  if(clientCatalogVersion && clientCatalogVersion!==CATALOG_VERSION)return json({ok:false,error:'catalog_version'},409);
   const uploaded = form.get('receipt');
   const receipt = uploaded instanceof File && uploaded.size > 0 ? uploaded : null;
   if (receipt?.size > 5 * 1024 * 1024) return json({ ok: false }, 413);
@@ -132,8 +144,12 @@ async function submitOrder(request, env) {
     await sendOrder(env, [...caption, 'واتساب: ' + phone].join('\n'), receipt);
     return json({ ok: true });
   }
+  // Production's cached form used 'whatsapp' for the transfer sender; preserve that behavior.
+  const transferWhatsapp=clean(form.get('transfer_whatsapp'),32)||clean(form.get('whatsapp'),32);
+  if(!/^\+?[0-9][0-9 ()-]{6,23}$/.test(transferWhatsapp))return json({ok:false,error:'transfer_whatsapp_required'},400);
   const settings = orderSettings(env);
-  const planId = settings?.plans[productId + ':' + Number(index)];
+  const planId = settings?.plans[planKey];
+  if(spec && planId!==VERIFIED_PLANS[planKey])return json({ok:false,error:'unavailable'},503);
   if (!planId) return json({ ok: false, error: 'unavailable' }, 503);
   const access = clean(form.get('request_key'), 40);
   if (!receipt || !validUuid.test(access)) return json({ ok: false, error: 'receipt_required' }, 400);
@@ -151,16 +167,15 @@ async function submitOrder(request, env) {
   const { id } = order;
   if (!created) {
     if (order.notification === 'sent') return json({ ok: true, tracking_url: '/order/' + id + '/' + access });
-    const claimed = await db.prepare(
-      "UPDATE orders SET notification = 'sending', notification_started_at = unixepoch() WHERE id = ? AND " +
-      "(notification = 'failed' OR (notification = 'sending' AND notification_started_at < unixepoch() - 60)) RETURNING id"
-    ).bind(id).first();
-    if (!claimed) return json({ ok: false, error: 'sending' }, 409);
+    // At-most-once notification: an uncertain Telegram response must not be retried automatically.
+    // A failed/sending request requires manual reconciliation to prevent duplicate admin messages.
+    return json({ ok: false, error: 'notification_pending' }, 409);
   }
   try {
     if (settings.mode === 'test') {
       caption.splice(0, 4, 'طلب اختبار · لا يوجد تحويل حقيقي', 'الباقة: ' + testProduct, 'المدة: ' + duration, 'السعر: مجاني');
     }
+    caption.push('رقم واتساب مُحوّل المبلغ: '+transferWhatsapp);
     caption.push('رقم الطلب: ' + orderReference(order));
     await sendOrder(env, caption.join('\n'), receipt, id, access);
   } catch {
@@ -239,11 +254,20 @@ async function handleDecision(request, env) {
   if (!await authorizedTelegramRequest(request, env)) return json({ ok: false }, 403);
   const update = await request.json();
   const query = update.callback_query;
+  const isAdmin=(chat,user)=>chat?.type==='private' && String(chat.id)===env.TELEGRAM_CHAT_ID && String(user?.id)===env.TELEGRAM_CHAT_ID;
+  if(['زوار الشهر','/visitors','/start'].includes(update.message?.text)){
+    if(!isAdmin(update.message.chat,update.message.from))return json({ok:true});
+    if(!env.ORDERS_DB)return json({ok:false},503);
+    const month=omanMonth();
+    const count=update.message.text==='/start' ? null : await env.ORDERS_DB.prepare('SELECT COUNT(*) AS total FROM monthly_visitors WHERE month = ?').bind(month).first();
+    await telegram(env,'sendMessage',{chat_id:env.TELEGRAM_CHAT_ID,text:count===null?'أهلًا، اختر زوار الشهر من القائمة.':'زوار الشهر ('+month+'): '+(count?.total??0),reply_markup:{keyboard:[[{text:'زوار الشهر'}]],resize_keyboard:true}});
+    return json({ok:true});
+  }
   const trackingDecision = trackingDecisionPattern.exec(query?.data || '');
   const decision = trackingDecision || decisionPattern.exec(query?.data || '');
   if (!query || !decision) return json({ ok: true });
   const chat = query.message?.chat;
-  if (chat?.type !== 'private' || String(chat.id) !== env.TELEGRAM_CHAT_ID || String(query.from.id) !== env.TELEGRAM_CHAT_ID) {
+  if (!isAdmin(chat,query.from)) {
     await telegram(env, 'answerCallbackQuery', { callback_query_id: query.id, text: 'غير مصرح لك بمراجعة هذا الطلب.' });
     return json({ ok: true });
   }
@@ -355,14 +379,129 @@ function trackingPage(order) {
     '.tracking-warning{background:#3b1b25;border:2px solid #ff987f;border-radius:12px;padding:16px;margin:16px 0}.tracking-warning p{color:#fff1eb;margin:0 0 10px}.tracking-warning strong{font-size:1.1rem}.tracking{display:flex;gap:8px;flex-direction:column}.tracking input,.tracking button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #ffad96}.tracking input{min-width:0;background:#25101a;color:#fff1eb}.tracking button{background:#ffc0aa;color:#29120d;cursor:pointer;font-weight:700}#copy-status{min-height:1.8em;margin:4px 0 0}' +
     '</style><main><a href="/">NEXSUB STORE</a><h1>' + title + '</h1>' + details +
     (order?.mode === 'test' ? '<p>طلب تجريبي.</p>' : '') +
-    tracking + (refresh ? '<p>الصفحة بتتحدث تلقائيًا.</p>' : '') + qr + links + lpa + '</main>' +
-    (order ? '<script defer src="/tracking-link.js"></script>' : '') + qrScripts + '</html>',
+    tracking + (refresh ? '<p>الصفحة بتتحدث تلقائيًا.</p>' : '') + qr + links + lpa +
+    (order?.status === 'ready' ? '<section><button type="button" id="show-usage">عرض استهلاك الشريحة</button><p id="usage-result" role="status" style="white-space:pre-line"></p></section>' : '') + '</main>' +
+    (order ? '<script defer src="/tracking-link.js"></script>' : '') + (order?.status === 'ready' ? '<script defer src="/usage-tracking.js"></script>' : '') + qrScripts + '</html>',
     { status: order ? 200 : 404, headers: {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer',
       'X-Robots-Tag': 'noindex, nofollow', 'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src https: data:; base-uri 'none'; frame-ancestors 'none'",
     } },
   );
+}
+
+
+function omanMonth(){
+  const p=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Muscat',year:'numeric',month:'2-digit'}).formatToParts(new Date());
+  return p.find(x=>x.type==='year').value+'-'+p.find(x=>x.type==='month').value;
+}
+async function countVisitor(request,env){
+  if(!env.ORDERS_DB||!(env.VISITOR_HASH_SECRET||env.TELEGRAM_WEBHOOK_SECRET))return json({ok:false},503);
+  const cookie=/(?:^|;\s*)nx_visitor=([0-9a-f]{64})(?:;|$)/.exec(request.headers.get('Cookie')||'');
+  const token=cookie?.[1]||hex(crypto.getRandomValues(new Uint8Array(32)));
+  const key=await hash(omanMonth()+':'+token+':'+(env.VISITOR_HASH_SECRET||env.TELEGRAM_WEBHOOK_SECRET));
+  await env.ORDERS_DB.prepare('INSERT OR IGNORE INTO monthly_visitors (month, visitor_hash) VALUES (?, ?)').bind(omanMonth(),key).run();
+  const response=json({ok:true});
+  response.headers.set('Set-Cookie','nx_visitor='+token+'; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax');
+  return response;
+}
+function formattedUsage(value,unit){
+  if(value==null||value==='')return null;
+  if(typeof value==='object'&&!Array.isArray(value))return formattedUsage(value.value??value.amount??value.data_usage,value.unit??unit);
+  const m=/^\s*(\d+(?:\.\d+)?)\s*(MB|GB|KB|B)?\s*$/i.exec(String(value));
+  if(!m)return null;
+  const amount=Number(m[1]),u=(m[2]||unit||'MB').toUpperCase();
+  const mb=u==='GB'?amount*1000:u==='KB'?amount/1000:u==='B'?amount/1000000:u==='MB'?amount:null;
+  if(mb===null||!Number.isFinite(mb))return null;
+  // Explicit GB stays in GB (including zero); otherwise switch from MB to GB at 1000 MB.
+  const showGb = u === 'GB' || mb >= 1000;
+  const num=showGb?(mb/1000).toFixed(3):mb.toFixed(2);
+  return {formatted:num.replace(/\.?0+$/,'')+(showGb?' GB':' MB'),unit:u,assumed_mb:!m[2]&&!unit};
+}
+function deviceIds(top){
+  const value=top?.device_ids??top?.deviceIds??top?.devices;
+  const items=Array.isArray(value)?value:typeof value==='string'?value.split(','):[];
+  return [...new Set(items.map(x=>typeof x==='object'?x?.device_id:String(x)).filter(x=>typeof x==='string'&&x.length&&x.length<160))].slice(0,20);
+}
+
+function dailyUsageEntries(raw, defaultUnit) {
+  if (raw == null || raw === '') return [];
+  const isScalar = raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    ('value' in raw || 'amount' in raw || 'data_usage' in raw || 'usage' in raw);
+  const rows = Array.isArray(raw) ? raw : isScalar ? [raw] :
+    typeof raw === 'object' ? Object.entries(raw).map(([date, value]) => ({date, value})) : [raw];
+  return rows.slice(0, 100).map(row => {
+    const value = row && typeof row === 'object' ?
+      row.data_usage ?? row.usage ?? row.value ?? row.amount : row;
+    const unit = row && typeof row === 'object' ? row.unit ?? defaultUnit : defaultUnit;
+    const quantity = formattedUsage(value, unit);
+    const date = row && typeof row === 'object' && typeof (row.date ?? row.day) === 'string'
+      ? (row.date ?? row.day).slice(0, 50) : '';
+    return quantity ? {date, amount:quantity.formatted} : null;
+  }).filter(Boolean);
+}
+
+async function countLegacyVisitor(request, env) {
+  if (!env.ORDERS_DB || !(env.VISITOR_HASH_SECRET || env.TELEGRAM_WEBHOOK_SECRET)) return json({ok:false},503);
+  const raw = await request.text().catch(() => '');
+  if (!validUuid.test(raw) || raw.length > 40) return json({ok:false},400);
+  const month = omanMonth();
+  const key = await hash(month + ':' + raw + ':' + (env.VISITOR_HASH_SECRET || env.TELEGRAM_WEBHOOK_SECRET));
+  await env.ORDERS_DB.prepare('INSERT OR IGNORE INTO monthly_visitors (month, visitor_hash) VALUES (?, ?)').bind(month,key).run();
+  return json({ok:true});
+}
+
+async function legacyUsageRequest(request, env) {
+  const path = new URL(request.url).pathname.replace(/\/usage\/?$/, '');
+  const match = trackingRoute.exec(path);
+  if (!match) return json({ok:false},404);
+  const reference = new URL(path, request.url).href;
+  const internal = new Request(new URL('/api/usage', request.url), {
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({reference})
+  });
+  const response = await usageRequest(internal,env);
+  if (!response.ok) return json({ok:false},response.status);
+  const result = await response.json();
+  return json({ok:true,usage:(result.devices||[]).map(device=>({
+    cumulative:device.usage?.formatted ?? null,
+    daily:device.daily_entries || (device.daily ? [{date:'',amount:device.daily.formatted}] : []),
+    resetTime:device.daily_reset_time ?? null
+  }))});
+}
+
+async function usageRequest(request,env){
+  if(!env.ORDERS_DB)return json({ok:false},503);
+  if(Number(request.headers.get('Content-Length')||0)>4096)return json({ok:false},413);
+  const payload=await request.json().catch(()=>null);
+  const reference=typeof payload?.reference==='string'?payload.reference.trim().slice(0,2048):'';
+  let order=null;
+  try{
+    const url=new URL(reference,new URL(request.url).origin);
+    const here=new URL(request.url),match=trackingRoute.exec(url.pathname);
+    if(match&&!url.search&&!url.hash&&!url.username&&!url.password&&
+      ['nexsubstore.com','www.nexsubstore.com',here.hostname].includes(url.hostname)&&
+      (url.protocol==='https:'||here.hostname==='localhost'&&url.protocol==='http:'))
+      order=await env.ORDERS_DB.prepare('SELECT * FROM orders WHERE id = ? AND access_hash = ?').bind(match[1],await hash(match[2])).first();
+  }catch{}
+  if(!order&&/^LPA:1\$[\x21-\x7e]{1,500}$/i.test(reference)){
+    const found=await env.ORDERS_DB.prepare("SELECT * FROM orders WHERE status = 'ready' AND instr(delivery, ?) > 0 LIMIT 100").bind(reference).all();
+    order=(found.results||[]).find(row=>{try{return JSON.parse(row.delivery||'{}').lpa===reference}catch{return false}})||null;
+  }
+  if(!order)return json({ok:false,error:'not_found'},404);
+  if(order.status!=='ready'||!order.topup_id)return json({ok:false,error:'not_ready'},409);
+  const settings=providerSettings(env);
+  if(!settings||settings.mode!==order.mode)return json({ok:false,error:'unavailable'},503);
+  try{
+    const top=await microesim(env,settings,'topupDetail',{topup_id:order.topup_id});
+    const ids=deviceIds(top);
+    if(!ids.length)return json({ok:false,error:'unavailable'},503);
+    const devices=await Promise.all(ids.map(async device_id=>{
+      const data=await microesim(env,settings,'deviceDetail',{topup_id:order.topup_id,device_id});
+      return {usage:formattedUsage(data?.data_usage,data?.data_usage_unit??data?.unit),daily:formattedUsage(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),daily_entries:dailyUsageEntries(data?.data_usage_daily,data?.data_usage_daily_unit??data?.data_usage_unit??data?.unit),is_daily:data?.is_daily??null,daily_reset_time:data?.daily_reset_time??null};
+    }));
+    return json({ok:true,devices});
+  }catch{return json({ok:false,error:'provider_unavailable'},502)}
 }
 
 export default {
@@ -372,12 +511,16 @@ export default {
       if (path === '/api/esim-availability') {
         if (request.method !== 'GET') return json({ ok: false }, 405);
         const settings = orderSettings(env);
-        return json({ mode: settings?.mode, variants: Object.keys(settings?.plans || {}) });
+        return json({ mode: settings?.mode, catalog_version: CATALOG_VERSION, variants: Object.keys(settings?.plans || {}) });
       }
+      if (path === '/api/usage') return request.method === 'POST' ? await usageRequest(request,env) : json({ok:false},405);
+      if (path === '/api/visitor') return request.method === 'POST' ? await countVisitor(request,env) : json({ok:false},405);
+      if (path === '/api/visit') return request.method === 'POST' ? await countLegacyVisitor(request,env) : json({ok:false},405);
       if (path === '/api/order') return request.method === 'POST' ? await submitOrder(request, env) : json({ ok: false }, 405);
       if (path === '/api/telegram') return request.method === 'POST' ? await handleDecision(request, env) : json({ ok: false }, 405);
       if (path.startsWith('/order/')) {
         if (request.method !== 'GET') return json({ ok: false }, 405);
+        if (/\/usage\/?$/.test(path)) return await legacyUsageRequest(request,env);
         const match = trackingRoute.exec(path);
         if (!match || !env.ORDERS_DB) return trackingPage(null);
         const order = await env.ORDERS_DB.prepare('SELECT * FROM orders WHERE id = ? AND access_hash = ?')

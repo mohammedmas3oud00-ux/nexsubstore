@@ -1,0 +1,46 @@
+name: NEXSUB checks
+on:
+  pull_request:
+    paths:
+      - '_worker.js'
+      - 'index.html'
+      - 'catalog.v2026-11-17.js'
+      - 'tests/**'
+      - '.github/workflows/nexsub-checks.yml'
+  push:
+    branches:
+      - 'rebuild/nexsub-features'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run mocked integration tests
+        run: node --test tests/nexsub.test.mjs
+      - name: Verify no committed real secrets
+        run: |
+          if grep -nEi '(MICROESIM_SECRET|TELEGRAM_BOT_TOKEN|VISITOR_HASH_SECRET)\s*[:=]\s*["'"'"'][^"'"'"']{12,}' _worker.js index.html catalog.v2026-11-17.js; then
+            echo "Potential embedded secret in public source"
+            exit 1
+          fi
+
+      - name: Prepare clean Cloudflare Pages preview files
+        run: |
+          mkdir -p preview-dist/img
+          cp index.html _worker.js catalog.js catalog.v2026-11-17.js catalog-20261116.js \
+             qr-display.js qrcode-generator.js qrcode-generator.LICENSE.txt \
+             tracking-link.js order-usage.js visitors.js usage-main.js usage-tracking.js preview-dist/
+          cp img/logo.png img/hero-bg.jpg preview-dist/img/
+          test -f preview-dist/_worker.js
+          test -f preview-dist/index.html
+      - name: Archive deployable preview files
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexsub-preview-dist
+          path: preview-dist/
+          retention-days: 14
