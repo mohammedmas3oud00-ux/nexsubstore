@@ -7,6 +7,9 @@ const trackingRoute = new RegExp('^/order/(' + uuid + ')/(' + uuid + ')/?$');
 const decisionPattern = new RegExp('^(accept|reject):(' + uuid + ')$');
 const trackingDecisionPattern = new RegExp('^(a):(' + uuid + '):([A-Za-z0-9_-]{22})$');
 const catalogPrefix = 'globalThis.NX_CATALOG = ';
+const CATALOG_VERSION='2026-11-17';
+const VERIFIED_PLANS={"gb1:0":"7876dde7-774b-430e-bfe1-e445f4318878","gb2:0":"9e6f8cda-6ba6-45ad-9180-c70b61f8f6ef","gb3:0":"6e252d80-4359-4c45-a7df-7b3f43e6451b","un:0":"18d0cdfe-0554-4702-852f-60309ac1f2db","un:1":"ec4c6793-a092-4362-9a46-97143c2050dd","un:2":"4b15a5a9-e04f-43ff-b153-eab2ab793c78","un:3":"53014496-0cd7-4dc3-b1c9-b916479a14a4","un:4":"0cf0f2f4-ad9b-477b-ae7f-41d1ebab300d","un:5":"f83798cd-faa6-457e-b2b2-df72cc03c4ad","un:6":"cd545300-8ad7-4b75-a979-2f1ea1b9f8af","un:7":"12fd3bc7-5c9a-409b-8bd2-d85578ee777b","un:8":"a221645f-dc2a-4a70-a647-edcd3461a8de","un:9":"523adb5b-0f31-42da-a116-0a11fbad43d2","un:10":"0c1c4ac2-2584-40b7-a7c4-68d439b01138","un:11":"34bc0542-eacd-4213-a73c-a0ef3f8f1cd0","un:12":"cfaffaa0-25ad-49e5-beac-f6a2148827a6","un:13":"60aa7ffa-2e37-4035-91ea-35844a023743"};
+const VERIFIED_SPECS={"gb1:0":{"days":1,"price":450},"gb2:0":{"days":1,"price":700},"gb3:0":{"days":1,"price":900},"un:0":{"days":1,"price":1000},"un:1":{"days":2,"price":1800},"un:2":{"days":3,"price":2500},"un:3":{"days":4,"price":3200},"un:4":{"days":5,"price":3600},"un:5":{"days":6,"price":4200},"un:6":{"days":7,"price":5000},"un:7":{"days":8,"price":5500},"un:8":{"days":9,"price":6200},"un:9":{"days":10,"price":6700},"un:10":{"days":15,"price":10000},"un:11":{"days":20,"price":13000},"un:12":{"days":25,"price":15500},"un:13":{"days":30,"price":16500}};
 const utf8 = new TextEncoder();
 
 function json(value, status = 200) {
@@ -31,10 +34,11 @@ function providerSettings(env) {
     return { mode: 'test', base: 'https://test.microesim.com', plans: { [testVariant]: testPlanId } };
   }
   if (env.MICROESIM_MODE !== 'production') return null;
-  const mapping = JSON.parse(env.MICROESIM_PLAN_MAP || '{}');
+  let mapping;
+  try { mapping = JSON.parse(env.MICROESIM_PLAN_MAP || '{}'); } catch { return null; }
   const plans = Object.fromEntries(Object.entries(mapping).filter(([key, value]) =>
     /^[a-z0-9-]+:\d+$/.test(key) && typeof value === 'string' && value.trim() && !value.startsWith('test9999-')));
-  return { mode: 'production', base: 'https://business.microesim.com', plans };
+  return { mode: 'production', base: 'https://business.microesim.com', plans: {...plans,...VERIFIED_PLANS} };
 }
 
 function orderSettings(env) {
@@ -45,7 +49,7 @@ function orderSettings(env) {
 }
 
 async function getCatalog(request, env) {
-  const asset = await env.ASSETS.fetch(new Request(new URL('/catalog.js', request.url)));
+  const asset = await env.ASSETS.fetch(new Request(new URL('/catalog.v2026-11-17.js', request.url)));
   const text = (await asset.text()).trim();
   if (!asset.ok || !text.startsWith(catalogPrefix) || !text.endsWith(';')) throw new Error('Catalog unavailable');
   return JSON.parse(text.slice(catalogPrefix.length, -1));
@@ -117,6 +121,10 @@ async function submitOrder(request, env) {
   const product = (await getCatalog(request, env)).find(item => item.id === productId);
   const variant = /^\d+$/.test(index) ? product?.d[Number(index)] : undefined;
   if (!name || !variant || !Number.isInteger(variant[1]) || variant[1] <= 0) return json({ ok: false }, 400);
+  const planKey=productId+':'+Number(index),spec=VERIFIED_SPECS[planKey];
+  if(spec && (variant[0]!==spec.days || variant[1]!==spec.price)) return json({ok:false,error:'catalog_mismatch'},503);
+  if(product.fam==='ct'||product.fam==='sub'&&!['s-nf','s-osn'].includes(productId))return json({ok:false,error:'unavailable'},403);
+  if(clean(form.get('catalog_version'),32)!==CATALOG_VERSION)return json({ok:false,error:'catalog_version'},409);
   const uploaded = form.get('receipt');
   const receipt = uploaded instanceof File && uploaded.size > 0 ? uploaded : null;
   if (receipt?.size > 5 * 1024 * 1024) return json({ ok: false }, 413);
@@ -132,8 +140,11 @@ async function submitOrder(request, env) {
     await sendOrder(env, [...caption, 'واتساب: ' + phone].join('\n'), receipt);
     return json({ ok: true });
   }
+  const transferWhatsapp=clean(form.get('transfer_whatsapp'),32);
+  if(!/^\+?[0-9][0-9 ()-]{6,23}$/.test(transferWhatsapp))return json({ok:false,error:'transfer_whatsapp_required'},400);
   const settings = orderSettings(env);
-  const planId = settings?.plans[productId + ':' + Number(index)];
+  const planId = settings?.plans[planKey];
+  if(spec && planId!==VERIFIED_PLANS[planKey])return json({ok:false,error:'unavailable'},503);
   if (!planId) return json({ ok: false, error: 'unavailable' }, 503);
   const access = clean(form.get('request_key'), 40);
   if (!receipt || !validUuid.test(access)) return json({ ok: false, error: 'receipt_required' }, 400);
@@ -161,6 +172,7 @@ async function submitOrder(request, env) {
     if (settings.mode === 'test') {
       caption.splice(0, 4, 'طلب اختبار · لا يوجد تحويل حقيقي', 'الباقة: ' + testProduct, 'المدة: ' + duration, 'السعر: مجاني');
     }
+    caption.push('رقم واتساب مُحوّل المبلغ: '+transferWhatsapp);
     caption.push('رقم الطلب: ' + orderReference(order));
     await sendOrder(env, caption.join('\n'), receipt, id, access);
   } catch {
@@ -372,7 +384,7 @@ export default {
       if (path === '/api/esim-availability') {
         if (request.method !== 'GET') return json({ ok: false }, 405);
         const settings = orderSettings(env);
-        return json({ mode: settings?.mode, variants: Object.keys(settings?.plans || {}) });
+        return json({ mode: settings?.mode, catalog_version: CATALOG_VERSION, variants: Object.keys(settings?.plans || {}) });
       }
       if (path === '/api/order') return request.method === 'POST' ? await submitOrder(request, env) : json({ ok: false }, 405);
       if (path === '/api/telegram') return request.method === 'POST' ? await handleDecision(request, env) : json({ ok: false }, 405);
