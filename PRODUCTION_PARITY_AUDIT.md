@@ -33,6 +33,8 @@ The public production deployment was Direct Uploaded, not built from the current
 - At-most-once order notifications and approval/issuance CAS checks; manual reconciliation needed for uncertain notification failures.
 - The advertised speed-throttling figure for 500 MB was removed pending provider confirmation.
 
+- The production Pages environment contains **67 existing mapped legacy variant keys** in `MICROESIM_PLAN_MAP`; all 17 new ASIA+EU 52 variants are not in that legacy environment map, although the **live production public availability API already lists those 17 variants**. Their provider IDs are therefore supplied by production's deployed Worker or other runtime logic. The rebuild overlays the 17 explicitly supplied immutable IDs on top of all legacy mapping keys, preserving availability without exposing credential values.
+
 ## Validation
 - **30/30 products** exact deep equality of every catalog attribute, not only pricing.
 - **12/12 static parity checks**: UI sections, existing JS effects, static cards, old visitor path, current Netflix/OSN flags, new usage form, sender phone, versioned catalog and no unsupported speed claim.
