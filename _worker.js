@@ -125,7 +125,10 @@ async function submitOrder(request, env) {
   if(spec && (variant[0]!==spec.days || variant[1]!==spec.price)) return json({ok:false,error:'catalog_mismatch'},503);
   // Legacy country packs are orderable only if priced in this catalog and mapped by the server.
   if(product.fam==='sub'&&!['s-nf','s-osn'].includes(productId))return json({ok:false,error:'unavailable'},403);
-  if(clean(form.get('catalog_version'),32)!==CATALOG_VERSION)return json({ok:false,error:'catalog_version'},409);
+  // Existing 2026-11-16 storefronts do not submit a catalog_version field.
+  // The verified live catalog is identical; keep their requests valid while validating server price/plan.
+  const clientCatalogVersion = clean(form.get('catalog_version'),32);
+  if(clientCatalogVersion && clientCatalogVersion!==CATALOG_VERSION)return json({ok:false,error:'catalog_version'},409);
   const uploaded = form.get('receipt');
   const receipt = uploaded instanceof File && uploaded.size > 0 ? uploaded : null;
   if (receipt?.size > 5 * 1024 * 1024) return json({ ok: false }, 413);
@@ -141,7 +144,8 @@ async function submitOrder(request, env) {
     await sendOrder(env, [...caption, 'واتساب: ' + phone].join('\n'), receipt);
     return json({ ok: true });
   }
-  const transferWhatsapp=clean(form.get('transfer_whatsapp'),32);
+  // Production's cached form used 'whatsapp' for the transfer sender; preserve that behavior.
+  const transferWhatsapp=clean(form.get('transfer_whatsapp'),32)||clean(form.get('whatsapp'),32);
   if(!/^\+?[0-9][0-9 ()-]{6,23}$/.test(transferWhatsapp))return json({ok:false,error:'transfer_whatsapp_required'},400);
   const settings = orderSettings(env);
   const planId = settings?.plans[planKey];
