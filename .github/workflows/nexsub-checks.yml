@@ -32,9 +32,9 @@ jobs:
       - name: Prepare clean Cloudflare Pages preview files
         run: |
           mkdir -p preview-dist/img
-          cp index.html _worker.js catalog.js catalog.v2026-11-17.js \
+          cp index.html _worker.js catalog.js catalog.v2026-11-17.js catalog-20261116.js \
              qr-display.js qrcode-generator.js qrcode-generator.LICENSE.txt \
-             tracking-link.js usage-main.js usage-tracking.js preview-dist/
+             tracking-link.js order-usage.js visitors.js usage-main.js usage-tracking.js preview-dist/
           cp img/logo.png img/hero-bg.jpg preview-dist/img/
           test -f preview-dist/_worker.js
           test -f preview-dist/index.html
