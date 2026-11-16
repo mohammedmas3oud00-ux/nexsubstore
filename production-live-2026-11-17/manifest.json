@@ -1,0 +1,33 @@
+{
+  "production_deployment_id": "fb1173fb-465a-424c-b088-7a753434e4b8",
+  "account_id": "6bfd3ec609a0b232f3782232b689d7d4",
+  "project": "nexsubstore",
+  "files": [
+    {
+      "path": "/index.html",
+      "size_utf8_newline_unadjusted": 86330,
+      "status": 200
+    },
+    {
+      "path": "/catalog-20261116.js",
+      "size_utf8_newline_unadjusted": 5085,
+      "status": 200
+    },
+    {
+      "path": "/order-usage.js",
+      "size_utf8_newline_unadjusted": 1938,
+      "status": 200
+    },
+    {
+      "path": "/visitors.js",
+      "size_utf8_newline_unadjusted": 314,
+      "status": 200
+    }
+  ],
+  "unavailable": [
+    "production _worker.js",
+    "D1 records",
+    "secrets"
+  ],
+  "backup_type": "public static text assets only"
+}
