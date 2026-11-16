@@ -409,8 +409,10 @@ function formattedUsage(value,unit){
   const amount=Number(m[1]),u=(m[2]||unit||'MB').toUpperCase();
   const mb=u==='GB'?amount*1000:u==='KB'?amount/1000:u==='B'?amount/1000000:u==='MB'?amount:null;
   if(mb===null||!Number.isFinite(mb))return null;
-  const num=mb>=1000?(mb/1000).toFixed(3):(mb).toFixed(2);
-  return {formatted:num.replace(/\.?0+$/,'')+(mb>=1000?' GB':' MB'),unit:u,assumed_mb:!m[2]&&!unit};
+  // Explicit GB stays in GB (including zero); otherwise switch from MB to GB at 1000 MB.
+  const showGb = u === 'GB' || mb >= 1000;
+  const num=showGb?(mb/1000).toFixed(3):mb.toFixed(2);
+  return {formatted:num.replace(/\.?0+$/,'')+(showGb?' GB':' MB'),unit:u,assumed_mb:!m[2]&&!unit};
 }
 function deviceIds(top){
   const value=top?.device_ids??top?.deviceIds??top?.devices;
