@@ -662,7 +662,7 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
           <input id="ppn" name="name" type="text" required placeholder="اسمك">
           <label class="pp-l" for="ppw" id="ppwl">رقم الواتساب</label>
           <input id="ppw" name="whatsapp" type="tel" inputmode="tel" dir="ltr" required placeholder="+968 ...">
-          <label class="pp-l" for="pptw">رقم واتساب الشخص الذي حوّل المبلغ</label>
+          <label class="pp-l" id="pptwl" for="pptw">رقم واتساب الشخص الذي حوّل المبلغ</label>
           <input id="pptw" name="transfer_whatsapp" type="tel" inputmode="tel" dir="ltr" placeholder="+968 ...">
           <label class="pp-l" for="ppr" id="pprl">صورة إيصال التحويل</label>
           <input id="ppr" name="receipt" type="file" accept="image/*,application/pdf">
@@ -833,8 +833,8 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
       var inquiry=p.fam==='ct' && !p.d.length;
       var staticSub=p.fam==='sub' && !['s-nf','s-osn'].includes(p.id);
       var review=p.fam==='ct' && availability.mode==='test' && p.d.length;
-      var priceLabel=f!=null?'تبدأ من '+money2(f):inquiry?'السعر عند الطلب':review?'عرض الباقات والأسعار':availabilityLoading?'جارٍ التحقق':'غير متاح حاليًا';
-      html+='<'+(staticSub?'div':'button type="button"')+' class="sp" data-id="'+p.id+'">'+simHTML(p)+'<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+'<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span><span class="go">'+(inquiry||staticSub?'اطلب عبر واتساب':p.fam==='sub'?'اختر المدة':'اختر النوع والمدة')+'</span></div></'+(staticSub?'div':'button')+'>';
+      var priceLabel=f!=null?'تبدأ من '+money2(f):inquiry?'غير متاح للطلب المباشر':review?'عرض الباقات والأسعار':availabilityLoading?'جارٍ التحقق':'غير متاح حاليًا';
+      html+='<'+(staticSub||inquiry?'div':'button type="button"')+' class="sp" data-id="'+p.id+'">'+simHTML(p)+'<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+'<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span><span class="go">'+(inquiry?'غير متاح للطلب المباشر':staticSub?'اطلب عبر واتساب':p.fam==='sub'?'اختر المدة':'اختر النوع والمدة')+'</span></div></'+(staticSub||inquiry?'div':'button')+'>';
     });
     grid.innerHTML=html;
     $('shopempty').hidden = list.length>0;
@@ -908,6 +908,7 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     $('ppp').textContent=test ? 'مجاني للاختبار' : money2(x[1]);
     $('ppw').hidden=esim;
     $('ppw').required=!esim;
+    $('pptwl').hidden=!esim;
     $('pptw').hidden=!esim;
     $('pptw').required=esim;
     $('ppwl').hidden=esim;
