@@ -662,7 +662,9 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
           <input id="ppn" name="name" type="text" required placeholder="اسمك">
           <label class="pp-l" for="ppw" id="ppwl">رقم الواتساب</label>
           <input id="ppw" name="whatsapp" type="tel" inputmode="tel" dir="ltr" required placeholder="+968 ...">
-          <label class="pp-l" for="ppr" id="pprl">صورة إيصال التحويل (اختياري)</label>
+          <label class="pp-l" for="pptw">رقم واتساب الشخص الذي حوّل المبلغ</label>
+          <input id="pptw" name="transfer_whatsapp" type="tel" inputmode="tel" dir="ltr" placeholder="+968 ...">
+          <label class="pp-l" for="ppr" id="pprl">صورة إيصال التحويل</label>
           <input id="ppr" name="receipt" type="file" accept="image/*,application/pdf">
           <button class="btn pri pp-go" id="ppgo" type="submit">اطلب الآن</button>
           <p class="pp-note" id="ppnote">بعد مراجعة التحويل تقدر تستلم الشريحة من رابط طلبك.</p>
@@ -778,11 +780,12 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
 </div>
 
 
-<script src="/catalog.js"></script>
+<script src="/catalog.v2026-11-17.js"></script>
 <script>
 (function(){
   // ---- بيانات الباقات: السعر بالبيسة (1000 بيسة = 1 ريال). السعر null = لم يحدده صاحب المتجر بعد ----
   var P=globalThis.NX_CATALOG;
+  var CATALOG_VERSION='2026-11-17';
   var GRP={sub:[['v','مشاهدة','أفلام ومسلسلات ورياضة'],['g','ألعاب','ستيم'],['t','أدوات','كانفا برو'],['x','تواصل','سناب بلس']]};
   // أقسام الشرايح: كل قسم ليه أنواع جواه، وأي شريحة جديدة بتتضاف هنا
   var LINES=[['om','شرائح عُمان وباقات +52',[['gb','جيجا'],['un','لامحدود']]],['ct','شرائح الدول',null]];
@@ -794,7 +797,7 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
   function money2(b){ if(b==null) return 'السعر قريبًا'; return b<1000? b+' بيسة' : money(b); }
   function dl(x){ return x[2]||days(x[0]); }
   function days(n){ return n===1?'يوم واحد':(n===2?'يومان':(n<=10? n+' أيام': n+' يومًا')); }
-  function canOrder(p,index){ return p.fam==='sub' || availability.variants.includes(p.id+':'+index); }
+  function canOrder(p,index){ return (p.fam==='sub' && ['s-nf','s-osn'].includes(p.id)) || (availability.catalog_version===CATALOG_VERSION && availability.variants.includes(p.id+':'+index)); }
   function from(p){ var m=null; p.d.forEach(function(x,index){ if(canOrder(p,index) && x[1]!=null && (m===null||x[1]<m)) m=x[1]; }); return m; }
   function simHTML(p,d){ if(p.fam==='ct') return '<div class="sp-sim ct"><div class="sp-flag">'+p.fl+'</div><small>eSIM</small><strong>'+p.big+'</strong><em>شريحة دولة</em></div>'; if(p.fam==='sub') return '<div class="sp-sim sb" style="--c:'+p.c+'"><small>اشتراك رقمي</small><strong>'+p.big+'</strong><em>'+(d||'')+'</em></div>'; return '<div class="sp-sim"><div class="sp-chip"></div><small>eSIM</small><strong>'+p.big+(p.unit==='DATA'?'':' '+p.unit)+(p.unit==='DATA'?'<br>'+p.unit:'')+'</strong><em>'+(d?d+' يوم':'عُمان وباقات +52')+'</em></div>'; }
 
@@ -821,9 +824,10 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     list.forEach(function(p){
       var f=from(p);
       var inquiry=p.fam==='ct' && !p.d.length;
+      var staticSub=p.fam==='sub' && !['s-nf','s-osn'].includes(p.id);
       var review=p.fam==='ct' && availability.mode==='test' && p.d.length;
       var priceLabel=f!=null?'تبدأ من '+money2(f):inquiry?'السعر عند الطلب':review?'عرض الباقات والأسعار':availabilityLoading?'جارٍ التحقق':'غير متاح حاليًا';
-      html+='<button type="button" class="sp" data-id="'+p.id+'">'+simHTML(p)+'<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+'<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span><span class="go">'+(inquiry?'اطلب عبر واتساب':p.fam==='sub'?'اختر المدة':'اختر النوع والمدة')+'</span></div></button>';
+      html+='<'+(staticSub?'div':'button type="button"')+' class="sp" data-id="'+p.id+'">'+simHTML(p)+'<div class="sp-info">'+(p.tag?'<span class="sp-tag">'+p.tag+'</span>':'')+'<span class="t">'+(p.fam==='ct'?'شريحة eSIM '+p.t:p.t)+'</span><span class="f">'+priceLabel+'</span><span class="go">'+(inquiry||staticSub?'اطلب عبر واتساب':p.fam==='sub'?'اختر المدة':'اختر النوع والمدة')+'</span></div></'+(staticSub?'div':'button')+'>';
     });
     grid.innerHTML=html;
     $('shopempty').hidden = list.length>0;
@@ -869,7 +873,7 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     h+='</optgroup><optgroup label="شرائح الدول">';
     P.filter(function(p){return p.fam==='ct' && p.d.length>0;}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
     h+='</optgroup><optgroup label="اشتراكات رقمية">';
-    P.filter(function(p){return p.fam==='sub'}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
+    P.filter(function(p){return p.fam==='sub' && ['s-nf','s-osn'].includes(p.id)}).forEach(function(p){ h+='<option value="'+p.id+'">'+p.t+'</option>'; });
     h+='</optgroup>'; selT.innerHTML=h;
   })();
   function byId(id){ return P.filter(function(p){return p.id===id})[0]; }
@@ -897,15 +901,16 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     $('ppp').textContent=test ? 'مجاني للاختبار' : money2(x[1]);
     $('ppw').hidden=esim;
     $('ppw').required=!esim;
+    $('pptw').hidden=!esim;
+    $('pptw').required=esim;
     $('ppwl').hidden=esim;
     $('ppr').required=esim && available;
-    $('pprl').textContent=test ? 'صورة إيصال تجريبية' : esim ? 'صورة إيصال التحويل' : 'صورة إيصال التحويل (اختياري)';
+    $('pprl').textContent=test ? 'صورة إيصال تجريبية' : esim ? 'صورة إيصال التحويل' : 'صورة إيصال التحويل';
     $('pppay').hidden=!$('pppay').textContent || !available || test;
     $('ppnote').textContent=test ? 'استخدم صورة إيصال تجريبية. مش مطلوب تحويل فلوس.' :
       p.fam==='ct' && availability.mode==='test' ? 'معاينة الباقات والأسعار.' :
       !available ? (availabilityLoading ? 'جارٍ التحقق من توفر الباقة…' : 'الباقة غير متاحة للطلب حاليًا.') :
-      esim ? (p.id==='mb500' ? 'بعد استهلاك 500 ميجا تنخفض السرعة إلى 128 كيلوبت/ثانية. ' : '') +
-        'حوّل المبلغ وارفع الإيصال، وبعد إرسال الطلب احتفظ برابط متابعة الشريحة.' :
+      esim ? 'حوّل المبلغ وارفع الإيصال، وبعد إرسال الطلب احتفظ برابط متابعة الشريحة.' :
       'بعد مراجعة التحويل هنرسل لك بيانات الاشتراك على واتساب.';
     $('ppgo').disabled=submitting || !available || x[1]==null;
     $('ppgo').textContent=submitting ? 'جارٍ الإرسال…' : !available ? 'غير متاح' : 'اطلب الآن';
@@ -918,7 +923,7 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
   }
   function closePP(){ pp.hidden=true; back.hidden=true; document.documentElement.style.overflow=''; if(last&&last.focus) last.focus(); }
   grid.addEventListener('click',function(e){ var b=e.target.closest('.sp'); if(!b) return; var p=byId(b.getAttribute('data-id'));
-    if(p && p.fam==='ct' && !p.d.length){ var w=$('wabtn'); var base=(w&&w.href.indexOf('wa.me')>0)?w.href.split('?')[0]:''; if(base) window.open(base+'?text='+encodeURIComponent('مرحبا، أريد شريحة eSIM لـ'+p.t+'، كم الأسعار؟'),'_blank','noopener'); return; }
+    if(p && (p.fam==='ct' && !p.d.length || p.fam==='sub' && !['s-nf','s-osn'].includes(p.id))) return;
     openPP(p.id); });
   selT.addEventListener('change',fillDur); selD.addEventListener('change',upd);
   $('ppx').addEventListener('click',closePP); back.addEventListener('click',closePP);
@@ -933,10 +938,12 @@ body:not(.hasWA) [data-wa],body:not(.hasWA) #wabtn{display:none!important}
     if(rc && rc.size>5*1024*1024){ done(false,'حجم الإيصال أكبر من 5 ميجا، اختر صورة أصغر.'); return; }
     fd.append('name',$('ppn').value.trim());
     fd.append('product_id',p.id);
+    fd.append('catalog_version',CATALOG_VERSION);
     fd.append('variant',String(variant));
     fd.append('website',$('ppform').elements.website.value);
     if(p.fam==='sub') fd.append('whatsapp',$('ppw').value.trim());
     else {
+      fd.append('transfer_whatsapp',$('pptw').value.trim());
       if(!requestKey || requestKey.variant!==p.id+':'+variant) {
         requestKey={variant:p.id+':'+variant,key:crypto.randomUUID()};
       }
