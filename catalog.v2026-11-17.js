@@ -344,7 +344,8 @@ globalThis.NX_CATALOG = [
         3500,
         "حساب كامل · شهر"
       ]
-    ]
+    ],
+    "checkout": "site"
   },
   {
     "id": "s-pv",
@@ -379,7 +380,8 @@ globalThis.NX_CATALOG = [
         1400,
         "ملف خاص · شهر"
       ]
-    ]
+    ],
+    "checkout": "site"
   },
   {
     "id": "s-sh",
