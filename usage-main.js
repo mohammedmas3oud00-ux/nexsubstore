@@ -30,7 +30,7 @@
    }
    output.textContent=(data.devices||[]).map((d,i)=>
      'الشريحة '+(i+1)+'\nالاستهلاك الإجمالي: '+(d.usage?.formatted??'غير متاح')+
-     (d.daily?'\nالاستهلاك اليومي: '+d.daily.formatted:'')+
+     (d.daily_entries?.length?'\nالاستهلاك اليومي:\n'+d.daily_entries.map(x=>(x.date?x.date+' · ':'')+x.amount).join('\n'):(d.daily?'\nالاستهلاك اليومي: '+d.daily.formatted:''))+
      (d.daily_reset_time!=null&&d.daily_reset_time!==''?'\nإعادة الضبط اليومية: '+String(d.daily_reset_time):'')).join('\n\n')||'لا تتوفر بيانات استهلاك.';
  }
  form.addEventListener('submit',async(e)=>{
