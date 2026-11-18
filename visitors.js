@@ -4,6 +4,7 @@
     var num=document.getElementById('monthly-visitors-count');
     if(!box||!num||typeof count!=='number') return;
     num.textContent=count.toLocaleString('en-US');
+    box.style.display='inline-block';
     box.hidden=false;
   }
   try {
