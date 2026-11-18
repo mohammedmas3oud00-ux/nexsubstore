@@ -7,6 +7,7 @@ const trackingRoute = new RegExp('^/order/(' + uuid + ')/(' + uuid + ')/?$');
 const decisionPattern = new RegExp('^(accept|reject):(' + uuid + ')$');
 const trackingDecisionPattern = new RegExp('^(a):(' + uuid + '):([A-Za-z0-9_-]{22})$');
 const catalogPrefix = 'globalThis.NX_CATALOG = ';
+const catalogVersion = '2026-11-17';
 const utf8 = new TextEncoder();
 
 function json(value, status = 200) {
@@ -45,10 +46,16 @@ function orderSettings(env) {
 }
 
 async function getCatalog(request, env) {
-  const asset = await env.ASSETS.fetch(new Request(new URL('/catalog.js', request.url)));
+  let asset = await env.ASSETS.fetch(new Request(new URL('/catalog.v' + catalogVersion + '.js', request.url)));
+  if (!asset.ok) asset = await env.ASSETS.fetch(new Request(new URL('/catalog.js', request.url)));
   const text = (await asset.text()).trim();
   if (!asset.ok || !text.startsWith(catalogPrefix) || !text.endsWith(';')) throw new Error('Catalog unavailable');
   return JSON.parse(text.slice(catalogPrefix.length, -1));
+}
+
+function validPhone(value) {
+  const digits = value.replace(/\D/g, '');
+  return digits.length >= 6 && digits.length <= 15;
 }
 
 function orderDuration(variant) {
@@ -111,6 +118,7 @@ async function submitOrder(request, env) {
   const form = await request.formData().catch(() => null);
   if (!form) return json({ ok: false }, 400);
   if (form.get('website')) return json({ ok: true });
+  if (clean(form.get('catalog_version'), 20) !== catalogVersion) return json({ ok: false, error: 'catalog_version' }, 400);
   const name = clean(form.get('name'), 80);
   const productId = clean(form.get('product_id'), 40);
   const index = clean(form.get('variant'), 8);
@@ -128,10 +136,14 @@ async function submitOrder(request, env) {
     'السعر: ' + displayPrice(variant[1]), 'الاسم: ' + name];
   if (product.fam === 'sub') {
     const phone = clean(form.get('whatsapp'), 32);
-    if (!phone) return json({ ok: false }, 400);
+    if (!validPhone(phone)) return json({ ok: false, error: 'invalid_whatsapp' }, 400);
     await sendOrder(env, [...caption, 'واتساب: ' + phone].join('\n'), receipt);
     return json({ ok: true });
   }
+  const transferWhatsapp = clean(form.get('transfer_whatsapp'), 32);
+  if (!transferWhatsapp) return json({ ok: false, error: 'transfer_whatsapp_required' }, 400);
+  if (!validPhone(transferWhatsapp)) return json({ ok: false, error: 'invalid_whatsapp' }, 400);
+  caption.push('واتساب المحوّل: ' + transferWhatsapp);
   const settings = orderSettings(env);
   const planId = settings?.plans[productId + ':' + Number(index)];
   if (!planId) return json({ ok: false, error: 'unavailable' }, 503);
@@ -365,6 +377,91 @@ function trackingPage(order) {
   );
 }
 
+function formatDataMb(mb) {
+  const value = Number(mb);
+  if (!Number.isFinite(value) || value < 0) return null;
+  if (value >= 1024) return (Math.round((value / 1024) * 100) / 100) + ' GB';
+  return Math.round(value) + ' MB';
+}
+
+async function handleVisit(request, env) {
+  if (!env.ORDERS_DB) return json({ ok: false }, 503);
+  const month = new Date().toISOString().slice(0, 7);
+  if (request.method === 'POST') {
+    const id = (await request.text().catch(() => '')).trim();
+    if (validUuid.test(id)) {
+      const visitorHash = await hash(id);
+      await env.ORDERS_DB.prepare('INSERT OR IGNORE INTO monthly_visitors (month, visitor_hash) VALUES (?, ?)')
+        .bind(month, visitorHash).run();
+    }
+  } else if (request.method !== 'GET') {
+    return json({ ok: false }, 405);
+  }
+  const row = await env.ORDERS_DB.prepare('SELECT COUNT(*) AS count FROM monthly_visitors WHERE month = ?')
+    .bind(month).first();
+  return json({ ok: true, month, count: Number(row?.count || 0) });
+}
+
+async function findOrderByReference(env, reference, requestUrl) {
+  if (!env.ORDERS_DB || !reference) return null;
+  let path = '';
+  try {
+    path = new URL(reference, requestUrl).pathname;
+  } catch {}
+  const match = trackingRoute.exec(path);
+  if (match) {
+    return env.ORDERS_DB.prepare('SELECT * FROM orders WHERE id = ? AND access_hash = ?')
+      .bind(match[1], await hash(match[2])).first();
+  }
+  const rows = await env.ORDERS_DB.prepare(
+    "SELECT * FROM orders WHERE status = 'ready' AND delivery IS NOT NULL ORDER BY created_at DESC LIMIT 200"
+  ).all();
+  for (const row of rows.results || []) {
+    try {
+      const delivery = JSON.parse(row.delivery);
+      if (delivery.lpa === reference || delivery.qr === reference) return row;
+    } catch {}
+  }
+  return null;
+}
+
+async function handleUsage(request, env) {
+  if (request.method !== 'POST') return json({ ok: false }, 405);
+  const body = await request.json().catch(() => null);
+  const reference = clean(body?.reference, 600);
+  if (!reference) return json({ ok: false, error: 'not_found' }, 404);
+  const order = await findOrderByReference(env, reference, request.url);
+  if (!order) return json({ ok: false, error: 'not_found' }, 404);
+  if (order.status !== 'ready' || !order.topup_id) return json({ ok: false, error: 'not_ready' }, 409);
+  const settings = providerSettings(env);
+  if (settings?.mode !== order.mode) return json({ ok: false, error: 'provider_unavailable' }, 503);
+  try {
+    const detail = await microesim(env, settings, 'topupDetail', { topup_id: order.topup_id });
+    const deviceIds = Array.isArray(detail?.device_ids) ? detail.device_ids :
+      (detail?.device_id ? [detail.device_id] : []);
+    const devices = [];
+    for (const deviceId of deviceIds) {
+      const dev = await microesim(env, settings, 'deviceDetail', { device_id: String(deviceId) }).catch(() => null);
+      if (!dev) continue;
+      const totalFormatted = formatDataMb(dev.data_usage ?? dev.usage ?? dev.used_data);
+      const dailyFormatted = formatDataMb(dev.daily_usage ?? dev.today_usage);
+      const entries = Array.isArray(dev.daily_entries) ? dev.daily_entries.map(x => ({
+        date: x.date || '',
+        amount: formatDataMb(x.usage ?? x.amount) || String(x.amount ?? ''),
+      })) : [];
+      devices.push({
+        usage: totalFormatted ? { formatted: totalFormatted } : null,
+        daily: dailyFormatted ? { formatted: dailyFormatted } : null,
+        daily_entries: entries,
+        daily_reset_time: dev.daily_reset_time ?? null,
+      });
+    }
+    return json({ ok: true, devices });
+  } catch {
+    return json({ ok: false, error: 'provider_unavailable' }, 502);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
@@ -372,8 +469,10 @@ export default {
       if (path === '/api/esim-availability') {
         if (request.method !== 'GET') return json({ ok: false }, 405);
         const settings = orderSettings(env);
-        return json({ mode: settings?.mode, variants: Object.keys(settings?.plans || {}) });
+        return json({ mode: settings?.mode, catalog_version: catalogVersion, variants: Object.keys(settings?.plans || {}) });
       }
+      if (path === '/api/visit') return await handleVisit(request, env);
+      if (path === '/api/usage') return await handleUsage(request, env);
       if (path === '/api/order') return request.method === 'POST' ? await submitOrder(request, env) : json({ ok: false }, 405);
       if (path === '/api/telegram') return request.method === 'POST' ? await handleDecision(request, env) : json({ ok: false }, 405);
       if (path.startsWith('/order/')) {
